@@ -1,5 +1,5 @@
 package com.inventory.pharma.model.enumerate;
 
 public enum MovementType {
-    In, OUT, ADJUSTMENT
+    IN, OUT, ADJUSTMENT, EXPIRED
 }

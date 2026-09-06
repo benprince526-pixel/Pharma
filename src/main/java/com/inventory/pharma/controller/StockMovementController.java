@@ -3,15 +3,16 @@ package com.inventory.pharma.controller;
 import com.inventory.pharma.model.StockMovement;
 import com.inventory.pharma.model.enumerate.MovementType;
 import com.inventory.pharma.service.IStockMovementService;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
-
 @RestController
 @RequestMapping("/api/stock-movements")
 @CrossOrigin(origins = "*")
@@ -21,56 +22,43 @@ public class StockMovementController {
     private IStockMovementService stockMovementService;
 
     @PostMapping
-    public ResponseEntity<StockMovement> createStockMovement(@RequestBody StockMovement stockMovement) {
-        StockMovement createdMovement = stockMovementService.createStockMovement(stockMovement);
-        return new ResponseEntity<>(createdMovement, HttpStatus.CREATED);
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
+    public ResponseEntity<StockMovement> createStockMovement(@Valid @RequestBody StockMovement movement) {
+        StockMovement createdMovement = stockMovementService.createStockMovement(movement);
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdMovement);
     }
 
     @GetMapping
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
     public ResponseEntity<List<StockMovement>> getAllStockMovements() {
         List<StockMovement> movements = stockMovementService.getAllStockMovements();
         return new ResponseEntity<>(movements, HttpStatus.OK);
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
     public ResponseEntity<StockMovement> getStockMovementById(@PathVariable Long id) {
         Optional<StockMovement> movement = stockMovementService.getStockMovementById(id);
-        if (movement.isPresent()) {
-            return new ResponseEntity<>(movement.get(), HttpStatus.OK);
-        }
-        return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        return movement.map(value -> new ResponseEntity<>(value, HttpStatus.OK))
+                .orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
     }
 
     @GetMapping("/batch/{batchId}")
-    public ResponseEntity<List<StockMovement>> getStockMovementsByBatch(@PathVariable Long batchId) {
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
+    public ResponseEntity<List<StockMovement>> getStockMovementsByBatchId(@PathVariable Long batchId) {
         List<StockMovement> movements = stockMovementService.getStockMovementsByBatch(batchId);
         return new ResponseEntity<>(movements, HttpStatus.OK);
     }
 
-    @GetMapping("/type/{type}")
-    public ResponseEntity<List<StockMovement>> getStockMovementsByType(@PathVariable MovementType type) {
-        List<StockMovement> movements = stockMovementService.getStockMovementsByType(type);
-        return new ResponseEntity<>(movements, HttpStatus.OK);
-    }
-
-    @GetMapping("/date-range")
-    public ResponseEntity<List<StockMovement>> getStockMovementsByDateRange(
-            @RequestParam LocalDateTime start,
-            @RequestParam LocalDateTime end) {
-        List<StockMovement> movements = stockMovementService.getStockMovementsByDateRange(start, end);
-        return new ResponseEntity<>(movements, HttpStatus.OK);
-    }
-
     @PutMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
     public ResponseEntity<StockMovement> updateStockMovement(@PathVariable Long id, @RequestBody StockMovement movementDetails) {
-        StockMovement updatedMovement = stockMovementService.updateStockMovement(id, movementDetails);
-        if (updatedMovement != null) {
-            return new ResponseEntity<>(updatedMovement, HttpStatus.OK);
-        }
-        return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        StockMovement updated = stockMovementService.updateStockMovement(id, movementDetails);
+        return new ResponseEntity<>(updated, HttpStatus.OK);
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
     public ResponseEntity<Void> deleteStockMovement(@PathVariable Long id) {
         if (stockMovementService.deleteStockMovement(id)) {
             return new ResponseEntity<>(HttpStatus.NO_CONTENT);

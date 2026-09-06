@@ -9,11 +9,10 @@ import java.util.Optional;
 
 public interface IStockMovementService {
     StockMovement createStockMovement(StockMovement stockMovement);
+    StockMovement createInitialStockMovement(StockMovement stockMovement);
     Optional<StockMovement> getStockMovementById(Long movementId);
     List<StockMovement> getAllStockMovements();
     List<StockMovement> getStockMovementsByBatch(Long batchId);
-    List<StockMovement> getStockMovementsByType(MovementType movementType);
-    List<StockMovement> getStockMovementsByDateRange(LocalDateTime start, LocalDateTime end);
     StockMovement updateStockMovement(Long movementId, StockMovement movementDetails);
     boolean deleteStockMovement(Long movementId);
 }

@@ -20,7 +20,8 @@ public class StockMovement {
     @Column(name = "created_at", nullable = false)
     private LocalDateTime createdAt = LocalDateTime.now();
 
-    @ManyToOne(fetch = FetchType.LAZY, optional = false)
+    // StockMovement.java
+    @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "batch_id", nullable = false)
     private Batch batch;
 
@@ -70,5 +71,16 @@ public class StockMovement {
 
     public void setCreatedAt(LocalDateTime createdAt) {
         this.createdAt = createdAt;
+    }
+
+    public StockMovement() {
+    }
+
+    public StockMovement(MovementType movement_type, Long quantity, String reason, LocalDateTime createdAt, Batch batch) {
+        this.movement_type = movement_type;
+        this.quantity = quantity;
+        this.reason = reason;
+        this.createdAt = createdAt;
+        this.batch = batch;
     }
 }

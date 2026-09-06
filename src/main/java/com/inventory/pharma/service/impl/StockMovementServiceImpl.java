@@ -1,9 +1,15 @@
 package com.inventory.pharma.service.impl;
 
+import com.inventory.pharma.model.Batch;
+import com.inventory.pharma.model.Product;
 import com.inventory.pharma.model.StockMovement;
 import com.inventory.pharma.model.enumerate.MovementType;
+import com.inventory.pharma.repository.BatchRepository;
+import com.inventory.pharma.repository.ProductRepository;
 import com.inventory.pharma.repository.StockMovementRepository;
 import com.inventory.pharma.service.IStockMovementService;
+import jakarta.persistence.EntityNotFoundException;
+import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
@@ -11,56 +17,182 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
+
 @Service
 public class StockMovementServiceImpl implements IStockMovementService {
 
     @Autowired
     private StockMovementRepository stockMovementRepository;
 
-    public StockMovement createStockMovement(StockMovement stockMovement) {
-        if (stockMovement.getCreatedAt() == null) {
-            stockMovement.setCreatedAt(LocalDateTime.now());
+    @Autowired
+    private BatchRepository batchRepository;
+
+    @Autowired
+    private ProductRepository productRepository;
+
+    @Override
+    @Transactional
+    public StockMovement createStockMovement(StockMovement movement) {
+        if (movement.getBatch() == null || movement.getBatch().getBatch_id() == null) {
+            throw new IllegalArgumentException("Batch ID must not be null when creating a stock movement");
         }
-        return stockMovementRepository.save(stockMovement);
+
+        Long batchId = movement.getBatch().getBatch_id();
+        Batch batch = batchRepository.findById(batchId)
+                .orElseThrow(() -> new EntityNotFoundException("Batch not found with ID: " + batchId));
+
+        Product product = batch.getProduct();
+        if (product == null) {
+            throw new IllegalStateException("Associated product for batch ID " + batchId + " is null");
+        }
+
+        long qty = movement.getQuantity();
+
+        if (movement.getMovement_type() == MovementType.IN) {
+            // Add quantity to Batch and Product
+            batch.setBatch_quantity(batch.getBatch_quantity() + qty);
+            product.setQuantity(product.getQuantity() + qty);
+        } else if (movement.getMovement_type() == MovementType.OUT) {
+            // Validate availability before deduction
+            if (qty > batch.getBatch_quantity()) {
+                throw new IllegalStateException("Insufficient stock in Batch #" + batchId
+                        + ". Requested: " + qty + ", Available: " + batch.getBatch_quantity());
+            }
+            batch.setBatch_quantity(batch.getBatch_quantity() - qty);
+            product.setQuantity(product.getQuantity() - qty);
+        }
+
+        // Save updated parent quantities
+        batchRepository.save(batch);
+        productRepository.save(product);
+
+        movement.setBatch(batch);
+        movement.setCreatedAt(LocalDateTime.now());
+        return stockMovementRepository.save(movement);
+    }
+    @Transactional
+    public StockMovement createInitialStockMovement(StockMovement movement) {
+
+        if (movement.getBatch() == null || movement.getBatch().getBatch_id() == null) {
+            throw new IllegalArgumentException("Batch ID must not be null");
+        }
+
+        Batch batch = batchRepository.findById(movement.getBatch().getBatch_id())
+                .orElseThrow(() -> new EntityNotFoundException("Batch not found"));
+
+        Product product = batch.getProduct();
+
+        if (product == null) {
+            throw new IllegalStateException("Product associated with batch is null");
+        }
+
+        // La quantité du lot augmente directement le stock du produit
+        product.setQuantity(product.getQuantity() + batch.getBatch_quantity());
+
+        productRepository.save(product);
+
+        movement.setBatch(batch);
+        movement.setCreatedAt(LocalDateTime.now());
+
+        return stockMovementRepository.save(movement);
     }
 
-    public Optional<StockMovement> getStockMovementById(Long movementId) {
-        return stockMovementRepository.findById(movementId);
+    @Override
+    @Transactional
+    public StockMovement updateStockMovement(Long id, StockMovement movementDetails) {
+        StockMovement existingMovement = stockMovementRepository.findById(id)
+                .orElseThrow(() -> new EntityNotFoundException("Stock movement not found with ID: " + id));
+
+        if (movementDetails.getBatch() == null || movementDetails.getBatch().getBatch_id() == null) {
+            throw new IllegalArgumentException("Batch ID must not be null when updating a stock movement");
+        }
+
+        // 1. Revert previous movement effect from old Batch & Product
+        Batch oldBatch = existingMovement.getBatch();
+        Product oldProduct = oldBatch.getProduct();
+        long oldQty = existingMovement.getQuantity();
+
+        if (existingMovement.getMovement_type() == MovementType.IN) {
+            oldBatch.setBatch_quantity(oldBatch.getBatch_quantity() - oldQty);
+            oldProduct.setQuantity(oldProduct.getQuantity() - oldQty);
+        } else {
+            oldBatch.setBatch_quantity(oldBatch.getBatch_quantity() + oldQty);
+            oldProduct.setQuantity(oldProduct.getQuantity() + oldQty);
+        }
+        batchRepository.save(oldBatch);
+        productRepository.save(oldProduct);
+
+        // 2. Fetch target Batch for updated movement
+        Long newBatchId = movementDetails.getBatch().getBatch_id();
+        Batch newBatch = batchRepository.findById(newBatchId)
+                .orElseThrow(() -> new EntityNotFoundException("Batch not found with ID: " + newBatchId));
+        Product newProduct = newBatch.getProduct();
+
+        // 3. Apply new movement effect
+        long newQty = movementDetails.getQuantity();
+        if (movementDetails.getMovement_type() == MovementType.IN) {
+            newBatch.setBatch_quantity(newBatch.getBatch_quantity() + newQty);
+            newProduct.setQuantity(newProduct.getQuantity() + newQty);
+        } else {
+            if (newQty > newBatch.getBatch_quantity()) {
+                throw new IllegalStateException("Insufficient stock in Batch #" + newBatchId
+                        + ". Requested: " + newQty + ", Available: " + newBatch.getBatch_quantity());
+            }
+            newBatch.setBatch_quantity(newBatch.getBatch_quantity() - newQty);
+            newProduct.setQuantity(newProduct.getQuantity() - newQty);
+        }
+
+        batchRepository.save(newBatch);
+        productRepository.save(newProduct);
+
+        // 4. Update and persist StockMovement entity
+        existingMovement.setBatch(newBatch);
+        existingMovement.setMovement_type(movementDetails.getMovement_type());
+        existingMovement.setQuantity(newQty);
+        existingMovement.setReason(movementDetails.getReason());
+
+        return stockMovementRepository.save(existingMovement);
     }
 
+    @Override
+    @Transactional
+    public boolean deleteStockMovement(Long id) {
+        Optional<StockMovement> movementOpt = stockMovementRepository.findById(id);
+        if (movementOpt.isPresent()) {
+            StockMovement movement = movementOpt.get();
+            Batch batch = movement.getBatch();
+            Product product = batch.getProduct();
+            long qty = movement.getQuantity();
+
+            // Revert inventory changes when a movement record is deleted
+            if (movement.getMovement_type() == MovementType.IN) {
+                batch.setBatch_quantity(batch.getBatch_quantity() - qty);
+                product.setQuantity(product.getQuantity() - qty);
+            } else {
+                batch.setBatch_quantity(batch.getBatch_quantity() + qty);
+                product.setQuantity(product.getQuantity() + qty);
+            }
+
+            batchRepository.save(batch);
+            productRepository.save(product);
+            stockMovementRepository.deleteById(id);
+            return true;
+        }
+        return false;
+    }
+
+    @Override
     public List<StockMovement> getAllStockMovements() {
         return stockMovementRepository.findAll();
     }
 
+    @Override
+    public Optional<StockMovement> getStockMovementById(Long id) {
+        return stockMovementRepository.findById(id);
+    }
+
+    @Override
     public List<StockMovement> getStockMovementsByBatch(Long batchId) {
         return stockMovementRepository.findByBatchBatchId(batchId);
-    }
-
-    public List<StockMovement> getStockMovementsByType(MovementType movementType) {
-        return stockMovementRepository.findByMovementType(movementType);
-    }
-
-    public List<StockMovement> getStockMovementsByDateRange(LocalDateTime start, LocalDateTime end) {
-        return stockMovementRepository.findByCreatedAtBetween(start, end);
-    }
-
-    public StockMovement updateStockMovement(Long movementId, StockMovement movementDetails) {
-        Optional<StockMovement> movement = stockMovementRepository.findById(movementId);
-        if (movement.isPresent()) {
-            StockMovement existingMovement = movement.get();
-            existingMovement.setMovement_type(movementDetails.getMovement_type());
-            existingMovement.setQuantity(movementDetails.getQuantity());
-            existingMovement.setReason(movementDetails.getReason());
-            return stockMovementRepository.save(existingMovement);
-        }
-        return null;
-    }
-
-    public boolean deleteStockMovement(Long movementId) {
-        if (stockMovementRepository.existsById(movementId)) {
-            stockMovementRepository.deleteById(movementId);
-            return true;
-        }
-        return false;
     }
 }

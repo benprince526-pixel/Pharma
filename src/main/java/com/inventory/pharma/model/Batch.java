@@ -1,6 +1,7 @@
 package com.inventory.pharma.model;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.inventory.pharma.model.enumerate.BatchStatus;
 import jakarta.persistence.*;
 
 import java.time.LocalDate;
@@ -16,6 +17,9 @@ public class Batch {
 
     @Column(name = "batch_quantity", nullable = false)
     private Long batch_quantity;
+
+    @Enumerated(EnumType.STRING)
+    private BatchStatus status = BatchStatus.ACTIVE;
 
     @ManyToOne
     @JoinColumn(name = "product", nullable = false)

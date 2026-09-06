@@ -22,52 +22,65 @@ public class BatchController {
     private IBatchService batchService;
 
     @PostMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
     public ResponseEntity<Batch> createBatch(@Valid @RequestBody Batch batch) {
         Batch createdBatch = batchService.createBatch(batch);
         return new ResponseEntity<>(createdBatch, HttpStatus.CREATED);
     }
 
     @GetMapping
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
     public ResponseEntity<List<Batch>> getAllBatches() {
         List<Batch> batches = batchService.getAllBatches();
         return new ResponseEntity<>(batches, HttpStatus.OK);
     }
 
     @GetMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
     public ResponseEntity<Batch> getBatchById(@PathVariable Long id) {
         Optional<Batch> batch = batchService.getBatchById(id);
         return batch.map(value -> new ResponseEntity<>(value, HttpStatus.OK)).orElseGet(() -> new ResponseEntity<>(HttpStatus.NOT_FOUND));
     }
     @GetMapping("/products/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
     public ResponseEntity<List<Batch>> getBatchesByProductId(@PathVariable Long id){
         List<Batch> batches = batchService.getBatchesByProductId(id);
         return new ResponseEntity<>(batches, HttpStatus.OK);
     }
 
     @GetMapping("/expired")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
     public ResponseEntity<List<Batch>> getExpiredBatches(@RequestParam LocalDate date) {
         List<Batch> batches = batchService.getExpiredBatches(date);
         return new ResponseEntity<>(batches, HttpStatus.OK);
     }
 
     @GetMapping("/upcoming-expiry")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
     public ResponseEntity<List<Batch>> getUpcomingExpiredBatches(@RequestParam LocalDate date) {
         List<Batch> batches = batchService.getUpcomingExpiredBatches(date);
         return new ResponseEntity<>(batches, HttpStatus.OK);
     }
 
     @PutMapping("/{id}")
-    public ResponseEntity<Batch> updateBatch(@RequestBody Batch batchDetails) {
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
+    public ResponseEntity<Batch> updateBatch(
+            @PathVariable Long id,
+            @RequestBody Batch batchDetails) {
+
+        batchDetails.setBatch_id(id);
+
         Batch updatedBatch = batchService.updateBatch(batchDetails);
+
         if (updatedBatch != null) {
             return new ResponseEntity<>(updatedBatch, HttpStatus.OK);
         }
+
         return new ResponseEntity<>(HttpStatus.NOT_FOUND);
     }
 
     @DeleteMapping("/{id}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
     public ResponseEntity<Void> deleteBatch(@PathVariable Long id) {
         if (batchService.deleteBatch(id)) {
             return new ResponseEntity<>(HttpStatus.NO_CONTENT);

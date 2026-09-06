@@ -838,3 +838,40 @@ body {
     font-size: 12px;
   }
 }
+.dashboard-layout {
+    display: flex;
+    min-height: calc(100vh - 80px);
+}
+
+.dashboard-sidebar {
+    width: 240px;
+    background: #1f2937;
+    padding: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.nav-btn {
+    border: none;
+    padding: 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    text-align: left;
+    background: #374151;
+    color: white;
+    transition: 0.2s;
+}
+
+.nav-btn:hover {
+    background: #4b5563;
+}
+
+.nav-btn.active {
+    background: #2563eb;
+}
+
+.dashboard-main {
+    flex: 1;
+    padding: 20px;
+}

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { productService, authService, userService, decodeToken, batchService } from '../services/api';
+import { productService, authService, userService, decodeToken, batchService, stockMovementService } from '../services/api';
 import '../styles/Dashboard.css';
 
 function Dashboard({ onLogout }) {
+  const [activeSection, setActiveSection] = useState('inventory');
   const [medicines, setMedicines] = useState([]);
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -39,7 +40,6 @@ function Dashboard({ onLogout }) {
   const [addProductForm, setAddProductForm] = useState({
     item: '',
     designation: '',
-    quantity: '',
     unitPrice: '',
   });
   const [addProductError, setAddProductError] = useState('');
@@ -48,15 +48,14 @@ function Dashboard({ onLogout }) {
   // State for Product Editing
   const [editingProductId, setEditingProductId] = useState(null);
   const [editProductForm, setEditProductForm] = useState({
+    product_id: 0,
     item: '',
     designation: '',
     quantity: '',
     unitPrice: '',
   });
 
-  
   const [showAddBatchForm, setShowAddBatchForm] = useState(false);
-  // 1. Updated Form State to include quantity
   const [addBatchForm, setAddBatchForm] = useState({
     batch_id: '',
     expiryDate: '',
@@ -81,7 +80,6 @@ function Dashboard({ onLogout }) {
     try {
       const response = await productService.getAll();
       if (response.data && Array.isArray(response.data)) {
-        console.log(response.data);
         setMedicines(response.data);
       } 
     } catch (error) {
@@ -90,6 +88,7 @@ function Dashboard({ onLogout }) {
       setLoading(false);
     }
   };
+
   const fetchBatches = async () => {
     try {
       const response = await batchService.getAll();
@@ -106,6 +105,7 @@ function Dashboard({ onLogout }) {
   useEffect(() => {
     fetchMedicines();
     fetchBatches();
+    fetchStockMovements();
   }, []);
 
   useEffect(() => {
@@ -149,34 +149,48 @@ function Dashboard({ onLogout }) {
     setAddProductError('');
     setAddProductSuccess('');
 
-    if (!addProductForm.item || !addProductForm.designation || !addProductForm.quantity || !addProductForm.unitPrice) {
+    if (
+      !addProductForm.item?.trim() ||
+      !addProductForm.designation?.trim() ||
+      !addProductForm.unitPrice
+    ) {
       setAddProductError('Tous les champs sont obligatoires');
       return;
     }
 
     try {
       const newProduct = {
-        item: addProductForm.item,
-        designation: addProductForm.designation,
-        quantity: parseInt(addProductForm.quantity),
-        unitPrice: parseFloat(addProductForm.unitPrice),
+        item: addProductForm.item.trim(),
+        designation: addProductForm.designation.trim(),
+        quantity: 0,
+        unitPrice: Number(addProductForm.unitPrice)
       };
-      
+
       await productService.create(newProduct);
+
       setAddProductSuccess('Médicament ajouté avec succès!');
-      setAddProductForm({ item: '', designation: '', quantity: '', unitPrice: '' });
+      setAddProductForm({
+        item: '',
+        designation: '',
+        unitPrice: ''
+      });
+
       fetchMedicines();
       setTimeout(() => setShowAddProductForm(false), 1500);
+
     } catch (error) {
-      console.error('Error adding product:', error);
-      setAddProductError(error.response?.data?.message || 'Erreur lors de l\'ajout du médicament');
+      console.error(error);
+      setAddProductError(
+        error.response?.data?.message ||
+        "Erreur lors de l'ajout du médicament"
+      );
     }
   };
 
-  // Product Inline Edit Handlers
   const handleEditProduct = (medicine) => {
     setEditingProductId(medicine.product_id);
     setEditProductForm({
+      product_id: medicine.product_id,
       item: medicine.item,
       designation: medicine.designation,
       quantity: medicine.quantity,
@@ -192,6 +206,7 @@ function Dashboard({ onLogout }) {
   const handleUpdateProduct = async (id) => {
     try {
       const updatedProduct = {
+        product_id: editProductForm.product_id,
         item: editProductForm.item,
         designation: editProductForm.designation,
         quantity: parseInt(editProductForm.quantity),
@@ -218,138 +233,307 @@ function Dashboard({ onLogout }) {
         if (productService.delete) {
           await productService.delete(id);
         }
-        setMedicines(medicines.filter((med) => med.id !== id));
+        setMedicines(
+          medicines.filter(
+            (med) => med.product_id !== id
+          )
+        );
       } catch (error) {
         console.error('Error deleting product:', error);
         alert('Erreur lors de la suppression');
       }
     }
   };
-// Initial State Helpers
-const initialAddBatchState = { expiryDate: '', product: '', batch_quantity: '' };
-const initialEditBatchState = { batch_id: '', expiryDate: '', product: '', batch_quantity: '' };
 
-// Batches Operations
-const handleAddBatchChange = (e) => {
-  const { name, value } = e.target;
-  setAddBatchForm({ ...addBatchForm, [name]: value });
-};
+  const initialAddBatchState = { expiryDate: '', product: '', batch_quantity: '' };
 
-const handleAddBatchSubmit = async (e) => {
-  e.preventDefault();
-  setAddBatchError('');
-  setAddBatchSuccess('');
+  const handleAddBatchChange = (e) => {
+    const { name, value } = e.target;
+    setAddBatchForm({ ...addBatchForm, [name]: value });
+  };
 
-  if (!addBatchForm.expiryDate || !addBatchForm.product || !addBatchForm.batch_quantity) {
-    setAddBatchError('Tous les champs sont obligatoires');
-    return;
-  }
+  const handleAddBatchSubmit = async (e) => {
+    e.preventDefault();
+    setAddBatchError('');
+    setAddBatchSuccess('');
 
-  const selectedProductId = parseInt(addBatchForm.product, 10);
-  const quantityValue = parseInt(addBatchForm.batch_quantity, 10);
-
-  if (isNaN(selectedProductId)) {
-    setAddBatchError("Veuillez sélectionner un médicament valide.");
-    return;
-  }
-
-  if (isNaN(quantityValue) || quantityValue <= 0) {
-    setAddBatchError("La quantité du lot doit être un nombre supérieur à zéro.");
-    return;
-  }
-
-  try {
-    const newBatch = {
-      expiryDate: addBatchForm.expiryDate,
-      batch_quantity: quantityValue,
-      product: {
-        product_id: selectedProductId
-      }
-    };
-
-    console.log('Final Payload Sent to Backend:', newBatch);
-    await batchService.create(newBatch);
-
-    setAddBatchSuccess('Lot ajouté avec succès!');
-    setAddBatchForm(initialAddBatchState);
-    fetchBatches();
-    setTimeout(() => setShowAddBatchForm(false), 1500);
-  } catch (error) {
-    console.error('Error adding Batch:', error);
-    setAddBatchError(error.response?.data?.message || "Erreur lors de l'ajout d'un lot");
-  }
-};
-
-// Batch Inline Edit Handlers
-const handleEditBatch = (batch) => {
-  const id = batch.batch_id || batch.batchId;
-  const productId = batch.product?.product_id || batch.product?.productId || batch.product?.id || batch.product || '';
-
-  setEditingBatchId(id);
-  setEditBatchForm({
-    batch_id: id,
-    expiryDate: batch.expiryDate || '',
-    batch_quantity: batch.batch_quantity || batch.quantity || 0,
-    product: productId
-  });
-};
-
-const handleEditBatchChange = (e) => {
-  const { name, value } = e.target;
-  setEditBatchForm({ ...editBatchForm, [name]: value });
-};
-
-const handleUpdateBatch = async (id) => {
-  const productId = parseInt(editBatchForm.product, 10);
-  const quantityValue = parseInt(editBatchForm.batch_quantity, 10);
-
-  if (isNaN(productId) || isNaN(quantityValue) || quantityValue <= 0) {
-    alert("Veuillez saisir une quantité et un produit valides.");
-    return;
-  }
-
-  try {
-    const updatedBatch = {
-      batch_id: id,
-      expiryDate: editBatchForm.expiryDate,
-      batch_quantity: quantityValue,
-      product: {
-        product_id: productId
-      }
-    };
-
-    if (batchService.update) {
-      await batchService.update(id, updatedBatch);
-    } else {
-      setBatches(
-        batches.map((batch) => {
-          const currentId = batch.batch_id || batch.batchId;
-          return currentId === id ? { ...batch, ...updatedBatch } : batch;
-        })
-      );
+    if (
+      !addBatchForm.expiryDate ||
+      !addBatchForm.product ||
+      addBatchForm.batch_quantity === '' ||
+      addBatchForm.batch_quantity === null
+    ) {
+      setAddBatchError('Tous les champs sont obligatoires');
+      return;
     }
 
-    setEditingBatchId(null);
-    fetchBatches();
-  } catch (error) {
-    console.error('Error updating Batch:', error);
-    alert(error.response?.data?.message || 'Erreur lors de la mise à jour du lot');
-  }
-};
+    const selectedProductId = parseInt(addBatchForm.product, 10);
+    const quantityValue = parseInt(addBatchForm.batch_quantity, 10);
 
-const handleDeleteBatch = async (id) => {
-  if (window.confirm('Êtes-vous sûr de vouloir supprimer ce lot?')) {
+    if (isNaN(selectedProductId)) {
+      setAddBatchError("Veuillez sélectionner un médicament valide.");
+      return;
+    }
+
+    if (isNaN(quantityValue) || quantityValue < 0) {
+      setAddBatchError("La quantité du lot doit être un nombre supérieur ou égal à zéro.");
+      return;
+    }
+
     try {
-      if (batchService.delete) {
-        await batchService.delete(id);
-      }
-      setBatches(batches.filter((batch) => (batch.batch_id || batch.batchId) !== id));
+      const newBatch = {
+        expiryDate: addBatchForm.expiryDate,
+        batch_quantity: quantityValue,
+        product: {
+          product_id: selectedProductId
+        }
+      };
+
+      await batchService.create(newBatch);
+
+      setAddBatchSuccess('Lot ajouté avec succès!');
+      setAddBatchForm(initialAddBatchState);
+      fetchBatches();
+      setTimeout(() => setShowAddBatchForm(false), 1500);
     } catch (error) {
-      console.error('Error deleting Batch:', error);
-      alert('Erreur lors de la suppression');
+      console.error('Error adding Batch:', error);
+      setAddBatchError(error.response?.data?.message || "Erreur lors de l'ajout d'un lot");
     }
-  }
-};
+  };
+
+  const handleEditBatch = (batch) => {
+    const id = batch.batch_id || batch.batchId;
+    const productId = batch.product?.product_id || batch.product?.productId || batch.product?.id || batch.product || '';
+
+    setEditingBatchId(id);
+    setEditBatchForm({
+      batch_id: id,
+      expiryDate: batch.expiryDate || '',
+      batch_quantity: batch.batch_quantity || batch.quantity || 0,
+      product: productId
+    });
+  };
+
+  const handleEditBatchChange = (e) => {
+    const { name, value } = e.target;
+    setEditBatchForm({ ...editBatchForm, [name]: value });
+  };
+
+  const handleUpdateBatch = async (id) => {
+    const productId = parseInt(editBatchForm.product, 10);
+    const quantityValue = parseInt(editBatchForm.batch_quantity, 10);
+
+    if (isNaN(productId) || isNaN(quantityValue) || quantityValue < 0) {
+      alert("Veuillez saisir un produit valide et une quantité ≥ 0.");
+      return;
+    }
+
+    try {
+      const updatedBatch = {
+        batch_id: id,
+        expiryDate: editBatchForm.expiryDate,
+        batch_quantity: quantityValue,
+        product: {
+          product_id: productId
+        }
+      };
+
+      if (batchService.update) {
+        await batchService.update(id, updatedBatch);
+      } else {
+        setBatches(
+          batches.map((batch) => {
+            const currentId = batch.batch_id || batch.batchId;
+            return currentId === id ? { ...batch, ...updatedBatch } : batch;
+          })
+        );
+      }
+
+      setEditingBatchId(null);
+      fetchBatches();
+    } catch (error) {
+      console.error('Error updating Batch:', error);
+      alert(error.response?.data?.message || 'Erreur lors de la mise à jour du lot');
+    }
+  };
+
+  const handleDeleteBatch = async (id) => {
+    if (window.confirm('Êtes-vous sûr de vouloir supprimer ce lot?')) {
+      try {
+        if (batchService.delete) {
+          await batchService.delete(id);
+        }
+        setBatches(batches.filter((batch) => (batch.batch_id || batch.batchId) !== id));
+      } catch (error) {
+        console.error('Error deleting Batch:', error);
+        alert('Erreur lors de la suppression');
+      }
+    }
+  };
+
+  const initialAddMovementState = {
+    movement_type: 'IN',
+    quantity: '',
+    reason: '',
+    batch: ''
+  };
+
+  const initialEditMovementState = {
+    id: '',
+    movement_type: '',
+    quantity: '',
+    reason: '',
+    batch: ''
+  };
+
+  const [stockMovements, setStockMovements] = useState([]);
+  const [showAddMovementForm, setShowAddMovementForm] = useState(false);
+  const [addMovementForm, setAddMovementForm] = useState(initialAddMovementState);
+  const [addMovementError, setAddMovementError] = useState('');
+  const [addMovementSuccess, setAddMovementSuccess] = useState('');
+
+  const [editingMovementId, setEditingMovementId] = useState(null);
+  const [editMovementForm, setEditMovementForm] = useState(initialEditMovementState);
+
+  const fetchStockMovements = async () => {
+    try {
+      const response = await stockMovementService.getAll();
+      if (response.data && Array.isArray(response.data)) {
+        setStockMovements(response.data);
+      }
+    } catch (error) {
+      console.error('Error fetching stock movements from API:', error);
+    }
+  };
+
+  const handleAddMovementChange = (e) => {
+    const { name, value } = e.target;
+    setAddMovementForm({ ...addMovementForm, [name]: value });
+  };
+
+  const handleAddMovementSubmit = async (e) => {
+    e.preventDefault();
+    setAddMovementError('');
+    setAddMovementSuccess('');
+
+    if (!addMovementForm.movement_type || !addMovementForm.quantity || !addMovementForm.reason || !addMovementForm.batch) {
+      setAddMovementError('Tous les champs sont obligatoires');
+      return;
+    }
+
+    const selectedBatchId = parseInt(addMovementForm.batch, 10);
+    const quantityValue = parseInt(addMovementForm.quantity, 10);
+
+    if (isNaN(selectedBatchId)) {
+      setAddMovementError('Veuillez sélectionner un lot valide.');
+      return;
+    }
+
+    if (isNaN(quantityValue) || quantityValue <= 0) {
+      setAddMovementError('La quantité doit être un nombre supérieur à zéro.');
+      return;
+    }
+
+    try {
+      const newMovement = {
+        movement_type: addMovementForm.movement_type,
+        quantity: quantityValue,
+        reason: addMovementForm.reason,
+        batch: {
+          batch_id: selectedBatchId
+        }
+      };
+
+      await stockMovementService.create(newMovement);
+
+      setAddMovementSuccess('Mouvement de stock ajouté avec succès!');
+      setAddMovementForm(initialAddMovementState);
+      fetchStockMovements();
+      fetchMedicines();
+      fetchBatches();
+      setTimeout(() => setShowAddMovementForm(false), 1500);
+    } catch (error) {
+      console.error('Error adding stock movement:', error);
+      setAddMovementError(error.response?.data?.message || "Erreur lors de l'ajout du mouvement de stock");
+    }
+  };
+
+  const handleEditMovement = (movement) => {
+    const id = movement.id;
+    const batchId = movement.batch?.batch_id || movement.batch?.batchId || movement.batch || '';
+
+    setEditingMovementId(id);
+    setEditMovementForm({
+      id: id,
+      movement_type: movement.movement_type || 'IN',
+      quantity: movement.quantity || 0,
+      reason: movement.reason || '',
+      batch: batchId
+    });
+  };
+
+  const handleEditMovementChange = (e) => {
+    const { name, value } = e.target;
+    setEditMovementForm({
+      ...editMovementForm,
+      [name]: value
+    });
+  };
+
+  const handleUpdateMovement = async (id) => {
+    const batchId = parseInt(editMovementForm.batch, 10);
+    const quantityValue = parseInt(editMovementForm.quantity, 10);
+
+    if (isNaN(batchId) || isNaN(quantityValue) || quantityValue <= 0 || !editMovementForm.reason) {
+      alert('Veuillez saisir une quantité, une raison et un lot valides.');
+      return;
+    }
+
+    try {
+      const updatedMovement = {
+        id: id,
+        movement_type: editMovementForm.movement_type,
+        quantity: quantityValue,
+        reason: editMovementForm.reason,
+        batch: {
+          batch_id: batchId
+        }
+      };
+
+      if (stockMovementService.update) {
+        await stockMovementService.update(id, updatedMovement);
+      } else {
+        setStockMovements(
+          stockMovements.map((m) => (m.id === id ? { ...m, ...updatedMovement } : m))
+        );
+      }
+
+      setEditingMovementId(null);
+      fetchStockMovements();
+      fetchMedicines();
+      fetchBatches();
+    } catch (error) {
+      console.error('Error updating stock movement:', error);
+      alert(error.response?.data?.message || 'Erreur lors de la mise à jour du mouvement');
+    }
+  };
+
+  const handleDeleteMovement = async (id) => {
+    if (window.confirm('Êtes-vous sûr de vouloir supprimer ce mouvement de stock?')) {
+      try {
+        if (stockMovementService.delete) {
+          await stockMovementService.delete(id);
+        }
+        setStockMovements(stockMovements.filter((m) => m.id !== id));
+        fetchStockMovements();
+        fetchMedicines();
+        fetchBatches();
+      } catch (error) {
+        console.error('Error deleting stock movement:', error);
+        alert('Erreur lors de la suppression');
+      }
+    }
+  };
 
   const handleRegisterChange = (e) => {
     const { name, value } = e.target;
@@ -442,6 +626,22 @@ const handleDeleteBatch = async (id) => {
   const totalStock = medicines.reduce((sum, med) => sum + med.quantity, 0);
   const totalValue = medicines.reduce((sum, med) => sum + med.quantity * med.unitPrice, 0);
 
+  const expiredBatches = batches.filter(batch => {
+    if (!batch.expiryDate) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const expiry = new Date(batch.expiryDate);
+    return expiry < today;
+  });
+
+  const activeBatches = batches.filter(batch => {
+    if (!batch.expiryDate) return false;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const expiry = new Date(batch.expiryDate);
+    return expiry >= today;
+  });
+
   if (loading) {
     return (
       <div className="dashboard-loading">
@@ -487,6 +687,980 @@ const handleDeleteBatch = async (id) => {
           </div>
         </div>
       </header>
+
+      <div className="dashboard-layout">
+        <aside className="dashboard-sidebar">
+          {isAdmin && (
+            <button
+              className={activeSection === 'users' ? 'nav-btn active' : 'nav-btn'}
+              onClick={() => setActiveSection('users')}
+            >
+              👤 Utilisateurs
+            </button>
+          )}
+
+          <button
+            className={activeSection === 'inventory' ? 'nav-btn active' : 'nav-btn'}
+            onClick={() => setActiveSection('inventory')}
+          >
+            📦 Produits
+          </button>
+
+          <button
+            className={activeSection === 'batches' ? 'nav-btn active' : 'nav-btn'}
+            onClick={() => setActiveSection('batches')}
+          >
+            🏷️ Lots
+          </button>
+
+          <button
+            className={activeSection === 'expiredBatches' ? 'nav-btn active' : 'nav-btn'}
+            onClick={() => setActiveSection('expiredBatches')}
+          >
+            ⏰ Lots périmés
+          </button>
+
+          <button
+            className={activeSection === 'movements' ? 'nav-btn active' : 'nav-btn'}
+            onClick={() => setActiveSection('movements')}
+          >
+            📊 Mouvements
+          </button>
+        </aside>
+
+        <main className="dashboard-main">
+          {isAdmin && activeSection === 'users' && (
+            <section className="admin-section">
+              <div className="section-header">
+                <h2>👤 Gestion des Utilisateurs</h2>
+                <button 
+                  className="add-button" 
+                  onClick={() => setShowRegisterForm(!showRegisterForm)}
+                >
+                  {showRegisterForm ? '✕ Fermer' : '+ Ajouter un utilisateur'}
+                </button>
+              </div>
+
+              {showRegisterForm && (
+                <div className="register-form-container">
+                  <form onSubmit={handleRegisterSubmit} className="register-form">
+                    <div className="form-group">
+                      <label htmlFor="username">Nom d'utilisateur</label>
+                      <input
+                        id="username"
+                        name="username"
+                        type="text"
+                        value={registerForm.username}
+                        onChange={handleRegisterChange}
+                        placeholder="Entrez le nom d'utilisateur"
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="email">Email</label>
+                      <input
+                        id="email"
+                        name="email"
+                        type="email"
+                        value={registerForm.email}
+                        onChange={handleRegisterChange}
+                        placeholder="Entrez l'adresse email"
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="password">Mot de passe</label>
+                      <input
+                        id="password"
+                        name="password"
+                        type="password"
+                        value={registerForm.password}
+                        onChange={handleRegisterChange}
+                        placeholder="Entrez le mot de passe"
+                        required
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label htmlFor="role">Rôle</label>
+                      <select
+                        id="role"
+                        name="role"
+                        value={registerForm.role}
+                        onChange={handleRegisterChange}
+                      >
+                        <option value="PHARMACIST">Pharmacien</option>
+                        <option value="STOCK_MANAGER">Gestionnaire Stock</option>
+                        <option value="ADMIN">Administrateur</option>
+                      </select>
+                    </div>
+
+                    {registerError && <div className="error-message">{registerError}</div>}
+                    {registerSuccess && <div className="success-message">{registerSuccess}</div>}
+
+                    <button type="submit" className="submit-button">
+                      Créer l'utilisateur
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {users.length > 0 && (
+                <div className="users-table-wrapper">
+                  <h3>Liste des Utilisateurs</h3>
+                  <table className="users-table">
+                    <thead>
+                      <tr>
+                        <th>Nom d'utilisateur</th>
+                        <th>Email</th>
+                        <th>Rôle</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {users.map((user) => (
+                        <tr key={user.id}>
+                          {editingUser === user.id ? (
+                            <>
+                              <td>
+                                <input
+                                  type="text"
+                                  name="username"
+                                  value={editForm.username}
+                                  onChange={handleEditChange}
+                                  className="edit-input"
+                                />
+                              </td>
+                              <td>
+                                <input
+                                  type="email"
+                                  name="email"
+                                  value={editForm.email}
+                                  onChange={handleEditChange}
+                                  className="edit-input"
+                                />
+                              </td>
+                              <td>
+                                <select
+                                  name="role"
+                                  value={editForm.role}
+                                  onChange={handleEditChange}
+                                  className="edit-input"
+                                >
+                                  <option value="PHARMACIST">Pharmacien</option>
+                                  <option value="STOCK_MANAGER">Gestionnaire Stock</option>
+                                  <option value="ADMIN">Administrateur</option>
+                                </select>
+                              </td>
+                              <td className="actions">
+                                <button
+                                  className="action-button save-button"
+                                  onClick={() => handleUpdateUser(user.id)}
+                                  title="Sauvegarder"
+                                >
+                                  ✓
+                                </button>
+                                <button
+                                  className="action-button cancel-button"
+                                  onClick={() => setEditingUser(null)}
+                                  title="Annuler"
+                                >
+                                  ✕
+                                </button>
+                              </td>
+                            </>
+                          ) : (
+                            <>
+                              <td>{user.username}</td>
+                              <td>{user.email}</td>
+                              <td>
+                                <span className={`role-badge role-${user.role.toLowerCase()}`}>
+                                  {user.role}
+                                </span>
+                              </td>
+                              <td className="actions">
+                                <button
+                                  className="action-button edit-button"
+                                  onClick={() => handleEditUser(user)}
+                                  title="Éditer"
+                                >
+                                  ✏️
+                                </button>
+                                <button
+                                  className="action-button delete-button"
+                                  onClick={() => handleDeleteUser(user.id)}
+                                  title="Supprimer"
+                                >
+                                  🗑️
+                                </button>
+                              </td>
+                            </>
+                          )}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
+
+          <section className="stats-section">
+            <div className="stat-card">
+              <div className="stat-icon">💊</div>
+              <div className="stat-content">
+                <h3>Médicaments</h3>
+                <p className="stat-value">{totalMedicines}</p>
+              </div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-icon">📦</div>
+              <div className="stat-content">
+                <h3>Stock Total</h3>
+                <p className="stat-value">{totalStock}</p>
+              </div>
+            </div>
+
+            <div className="stat-card">
+              <div className="stat-icon">💰</div>
+              <div className="stat-content">
+                <h3>Valeur Inventaire</h3>
+                <p className="stat-value">{totalValue.toFixed(2)} DA</p>
+              </div>
+            </div>
+          </section>
+
+          {activeSection === 'inventory' && (
+            <section className="medicines-section">
+              <div className="section-header">
+                <h2>📦 Inventaire des Médicaments ({medicines.length})</h2>
+                <button 
+                  className="add-button" 
+                  onClick={() => setShowAddProductForm(!showAddProductForm)}
+                >
+                  {showAddProductForm ? '✕ Fermer' : '+ Ajouter'}
+                </button>
+              </div>
+
+              {showAddProductForm && (
+                <div className="add-product-form-container">
+                  <form onSubmit={handleAddProductSubmit} className="add-product-form">
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label htmlFor="item">Nom du médicament</label>
+                        <input
+                          id="item"
+                          name="item"
+                          type="text"
+                          value={addProductForm.item}
+                          onChange={handleAddProductChange}
+                          placeholder="Ex: Paracétamol 500mg"
+                          required
+                        />
+                      </div>
+                      <div className="form-group">
+                        <label htmlFor="designation">Catégorie</label>
+                        <input
+                          id="designation"
+                          name="designation"
+                          type="text"
+                          value={addProductForm.designation}
+                          onChange={handleAddProductChange}
+                          placeholder="Ex: Analgésique"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label htmlFor="unitPrice">Prix unitaire (DA)</label>
+                        <input
+                          id="unitPrice"
+                          name="unitPrice"
+                          type="number"
+                          step="0.01"
+                          value={addProductForm.unitPrice}
+                          onChange={handleAddProductChange}
+                          placeholder="0.00"
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {addProductError && <div className="error-message">{addProductError}</div>}
+                    {addProductSuccess && <div className="success-message">{addProductSuccess}</div>}
+
+                    <button type="submit" className="submit-button">
+                      ✓ Ajouter le médicament
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {medicines.length === 0 ? (
+                <div className="no-data">
+                  <p>❌ Aucun médicament disponible</p>
+                </div>
+              ) : (
+                <div className="medicines-table-wrapper">
+                  <table className="medicines-table">
+                    <thead>
+                      <tr>
+                        <th>Id</th>
+                        <th>Nom</th>
+                        <th>Catégorie</th>
+                        <th>Quantité</th>
+                        <th>Prix Unitaire</th>
+                        <th>Total</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {medicines.map((medicine) => {
+                        const isEditing = editingProductId === medicine.product_id;
+                        const quantity = isEditing ? (parseFloat(editProductForm.quantity) || 0) : (medicine.quantity || 0);
+                        const unitPrice = isEditing ? (parseFloat(editProductForm.unitPrice) || 0) : (medicine.unitPrice || 0);
+
+                        return (
+                          <tr key={medicine.product_id}>
+                            {isEditing ? (
+                              <>
+                                <td>
+                                  <input
+                                    type="text"
+                                    name="product_id"
+                                    value={editProductForm.product_id}
+                                    className="edit-input"
+                                    readOnly
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="text"
+                                    name="item"
+                                    value={editProductForm.item}
+                                    onChange={handleEditProductChange}
+                                    className="edit-input"
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="text"
+                                    name="designation"
+                                    value={editProductForm.designation}
+                                    onChange={handleEditProductChange}
+                                    className="edit-input"
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="number"
+                                    name="quantity"
+                                    value={editProductForm.quantity}
+                                    onChange={handleEditProductChange}
+                                    className="edit-input"
+                                    readOnly
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="number"
+                                    step="0.01"
+                                    name="unitPrice"
+                                    value={editProductForm.unitPrice}
+                                    onChange={handleEditProductChange}
+                                    className="edit-input"
+                                  />
+                                </td>
+                                <td className="total-price">
+                                  {(quantity * unitPrice).toFixed(2)} DA
+                                </td>
+                                <td className="actions">
+                                  <button
+                                    className="action-button save-button"
+                                    onClick={() => handleUpdateProduct(medicine.product_id)}
+                                    title="Sauvegarder"
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    className="action-button cancel-button"
+                                    onClick={() => setEditingProductId(null)}
+                                    title="Annuler"
+                                  >
+                                    ✕
+                                  </button>
+                                </td>
+                              </>
+                            ) : (
+                              <>
+                                <td className="medicine-id">{medicine.product_id}</td>
+                                <td className="medicine-name">{medicine.item}</td>
+                                <td>
+                                  <span className="category-badge">{medicine.designation}</span>
+                                </td>
+                                <td className="quantity">
+                                  <span className={`quantity-badge ${quantity < 100 ? 'low' : 'normal'}`}>
+                                    {quantity}
+                                  </span>
+                                </td>
+                                <td>{unitPrice.toFixed(2)} DA</td>
+                                <td className="total-price">
+                                  {(quantity * unitPrice).toFixed(2)} DA
+                                </td>
+                                <td className="actions">
+                                  <button
+                                    className="action-button edit-button"
+                                    onClick={() => handleEditProduct(medicine)}
+                                    title="Éditer"
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    className="action-button delete-button"
+                                    onClick={() => handleDelete(medicine.product_id)}
+                                    title="Supprimer"
+                                  >
+                                    🗑️
+                                  </button>
+                                </td>
+                              </>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
+
+          {activeSection === 'batches' && (
+            <section className="medicines-section">
+              <div className="section-header">
+                <h2>📦 Lots ({batches.length})</h2>
+                <button 
+                  className="add-button" 
+                  onClick={() => setShowAddBatchForm(!showAddBatchForm)}
+                >
+                  {showAddBatchForm ? '✕ Fermer' : '+ Ajouter'}
+                </button>
+              </div>
+
+              {showAddBatchForm && (
+                <div className="add-product-form-container">
+                  <form onSubmit={handleAddBatchSubmit} className="add-product-form">
+                    <div className="form-row">
+                      <div className="form-group">
+                        <label htmlFor="expiryDate">Date d'expiration</label>
+                        <input
+                          id="expiryDate"
+                          name="expiryDate"
+                          type="date"
+                          value={addBatchForm.expiryDate}
+                          onChange={handleAddBatchChange}
+                          required
+                        />
+                      </div>
+
+                      <div className="form-group">
+                        <label htmlFor="product">Produit</label>
+                        <select
+                          id="product"
+                          name="product"
+                          value={addBatchForm.product}
+                          onChange={handleAddBatchChange}
+                          required
+                        >
+                          <option value="">Sélectionnez un médicament</option>
+                          {medicines.map((p) => {
+                            const itemId = p.id ?? p.productId ?? p.product_id;
+                            const itemName = p.nom ?? p.name ?? p.item ?? p.designation;
+                            
+                            return (
+                              <option key={itemId} value={itemId}>
+                                {itemName}
+                              </option>
+                            );
+                          })}
+                        </select>
+                      </div>
+                      <div className="form-group">
+                        <label htmlFor="batch_quantity">Quantité initiale</label>
+                        <input
+                          id="batch_quantity"
+                          name="batch_quantity"
+                          type="number"
+                          min="0"
+                          value={addBatchForm.batch_quantity}
+                          onChange={handleAddBatchChange}
+                          required
+                        />
+                      </div>
+                    </div>
+
+                    {addBatchError && <div className="error-message">{addBatchError}</div>}
+                    {addBatchSuccess && <div className="success-message">{addBatchSuccess}</div>}
+
+                    <button type="submit" className="submit-button">
+                      ✓ Ajouter le lot
+                    </button>
+                  </form>
+                </div>
+              )}
+
+              {batches.length === 0 ? (
+                <div className="no-data">
+                  <p>❌ Aucun lot disponible</p>
+                </div>
+              ) : (
+                <div className="medicines-table-wrapper">
+                  <table className="medicines-table">
+                    <thead>
+                      <tr>
+                        <th>Id lot</th>
+                        <th>Date d'expiration</th>
+                        <th>Quantité</th>
+                        <th>Id Produit</th>
+                        <th>Produit</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activeBatches.map((b) => {
+                        const isEditing = editingBatchId === b.batch_id;
+                        const rawExpiry = isEditing ? editBatchForm.expiryDate : b.expiryDate;
+                        const quantity = isEditing ? editBatchForm.batch_quantity : (b.batch_quantity || b.quantity || 0);
+                        
+                        const renderProductId = (prod) => {
+                          if (!prod) return "N/A";
+                          if (typeof prod === "object") {
+                            return prod.product_id || prod.productId || prod.id || "N/A";
+                          }
+                          return prod;
+                        };
+
+                        const renderProductName = (prod) => {
+                          if (!prod) return "N/A";
+                          if (typeof prod === "object") {
+                            return prod.item || prod.designation || prod.nom || prod.name || "N/A";
+                          }
+                          const match = medicines.find(m => (m.id ?? m.productId ?? m.product_id) === prod);
+                          return match ? (match.nom || match.name || match.item || match.designation) : "N/A";
+                        };
+
+                        return (
+                          <tr key={b.batch_id}>
+                            {isEditing ? (
+                              <>
+                                <td className="medicine-id">{b.batch_id}</td>
+                                <td>
+                                  <input
+                                    type="date"
+                                    name="expiryDate"
+                                    value={editBatchForm.expiryDate || ""}
+                                    onChange={handleEditBatchChange}
+                                    className="edit-input"
+                                  />
+                                </td>
+                                <td>
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    name="batch_quantity"
+                                    value={editBatchForm.batch_quantity || ""}
+                                    className="edit-input"
+                                    readOnly
+                                  />
+                                </td>
+                                <td>{editBatchForm.product || "N/A"}</td>
+                                <td>
+                                  <select
+                                    name="product"
+                                    value={editBatchForm.product || ""}
+                                    onChange={handleEditBatchChange}
+                                    className="edit-input"
+                                  >
+                                    <option value="">Sélectionnez un médicament</option>
+                                    {medicines.map((m) => {
+                                      const mId = m.id ?? m.productId ?? m.product_id;
+                                      return (
+                                        <option key={mId} value={mId}>
+                                          {m.nom || m.name || m.item || m.designation}
+                                        </option>
+                                      );
+                                    })}
+                                  </select>
+                                </td>
+                                <td className="actions">
+                                  <button
+                                    className="action-button save-button"
+                                    onClick={() => handleUpdateBatch(b.batch_id)}
+                                    title="Sauvegarder"
+                                  >
+                                    ✓
+                                  </button>
+                                  <button
+                                    className="action-button cancel-button"
+                                    onClick={() => setEditingBatchId(null)}
+                                    title="Annuler"
+                                  >
+                                    ✕
+                                  </button>
+                                </td>
+                              </>
+                            ) : (
+                              <>
+                                <td className="medicine-id">{b.batch_id}</td>
+                                {(() => {
+                                  const daysUntilExpiry = rawExpiry 
+                                    ? Math.ceil((new Date(rawExpiry) - new Date()) / (1000 * 60 * 60 * 24))
+                                    : 0;
+                                  return (
+                                    <td>
+                                      <span className={`quantity-badge ${daysUntilExpiry < 30 ? 'low' : 'normal'}`}>
+                                        {rawExpiry || 'N/A'}
+                                      </span>
+                                    </td>
+                                  );
+                                })()}
+                                <td className="quantity">
+                                  <span className="quantity-badge normal">
+                                    {quantity}
+                                  </span>
+                                </td>
+                                <td>{renderProductId(b.product)}</td>
+                                <td className="medicine-name">{renderProductName(b.product)}</td>
+                                <td className="actions">
+                                  <button
+                                    className="action-button edit-button"
+                                    onClick={() => handleEditBatch(b)}
+                                    title="Éditer"
+                                  >
+                                    ✏️
+                                  </button>
+                                  <button
+                                    className="action-button delete-button"
+                                    onClick={() => handleDeleteBatch(b.batch_id)}
+                                    title="Supprimer"
+                                  >
+                                    🗑️
+                                  </button>
+                                </td>
+                              </>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </section>
+          )}
+
+          {activeSection === 'expiredBatches' && (
+            <section className="medicines-section">
+              <div className="section-header">
+                <h2>⏰ Lots périmés ({expiredBatches.length})</h2>
+              </div>
+
+              <div className="medicines-table-wrapper">
+                <table className="medicines-table">
+                  <thead>
+                    <tr>
+                      <th>Lot</th>
+                      <th>Produit</th>
+                      <th>Date expiration</th>
+                      <th>Quantité restante</th>
+                    </tr>
+                  </thead>
+
+                  <tbody>
+                    {expiredBatches.map(batch => (
+                      <tr key={batch.batch_id}>
+                        <td>{batch.batch_id}</td>
+                        <td>{batch.product?.item}</td>
+                        <td>{batch.expiryDate}</td>
+                        <td>{batch.batch_quantity}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+
+          {activeSection === 'movements' && (() => {
+            const currentSelectedBatch = batches.find(
+              (b) => String(b.batch_id || b.batchId) === String(addMovementForm.batch)
+            );
+
+            return (
+              <section className="medicines-section">
+                <div className="section-header">
+                  <h2>📊 Mouvements de Stock ({stockMovements.length})</h2>
+                  <button 
+                    className="add-button" 
+                    onClick={() => setShowAddMovementForm(!showAddMovementForm)}
+                  >
+                    {showAddMovementForm ? '✕ Fermer' : '+ Ajouter'}
+                  </button>
+                </div>
+
+                {showAddMovementForm && (
+                  <div className="add-product-form-container">
+                    <form onSubmit={handleAddMovementSubmit} className="add-product-form">
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label htmlFor="movement_type">Type de mouvement</label>
+                          <select
+                            id="movement_type"
+                            name="movement_type"
+                            value={addMovementForm.movement_type}
+                            onChange={handleAddMovementChange}
+                            required
+                          >
+                            <option value="IN">ENTRÉE (IN)</option>
+                            <option value="OUT">SORTIE (OUT)</option>
+                          </select>
+                        </div>
+
+                        <div className="form-group">
+                          <label htmlFor="batch">Lot associé</label>
+                          <select
+                            id="batch"
+                            name="batch"
+                            value={addMovementForm.batch}
+                            onChange={handleAddMovementChange}
+                            required
+                          >
+                            <option value="">Sélectionnez un lot</option>
+                            {batches.map((b) => {
+                              const batchId = b.batch_id || b.batchId;
+                              return (
+                                <option key={batchId} value={batchId}>
+                                  Lot #{batchId} (Exp: {b.expiryDate})
+                                </option>
+                              );
+                            })}
+                          </select>
+                        </div>
+
+                        <div className="form-group">
+                          <label>Produit associé</label>
+                          <input
+                            type="text"
+                            value={currentSelectedBatch?.product?.item || ""}
+                            readOnly
+                          />
+                        </div>
+                      </div>
+
+                      <div className="form-row">
+                        <div className="form-group">
+                          <label htmlFor="quantity">Quantité</label>
+                          <input
+                            id="quantity"
+                            name="quantity"
+                            type="number"
+                            min="1"
+                            value={addMovementForm.quantity || ''}
+                            onChange={handleAddMovementChange}
+                            placeholder="Ex: 10"
+                            required
+                          />
+                        </div>
+
+                        <div className="form-group">
+                          <label htmlFor="reason">Motif / Raison</label>
+                          <input
+                            id="reason"
+                            name="reason"
+                            type="text"
+                            value={addMovementForm.reason}
+                            onChange={handleAddMovementChange}
+                            placeholder="Ex: Réception stock, Vente, Perte..."
+                            required
+                          />
+                        </div>
+                      </div>
+
+                      {addMovementError && <div className="error-message">{addMovementError}</div>}
+                      {addMovementSuccess && <div className="success-message">{addMovementSuccess}</div>}
+
+                      <button type="submit" className="submit-button">
+                        ✓ Enregistrer le mouvement
+                      </button>
+                    </form>
+                  </div>
+                )}
+
+                {stockMovements.length === 0 ? (
+                  <div className="no-data">
+                    <p>❌ Aucun mouvement de stock disponible</p>
+                  </div>
+                ) : (
+                  <div className="medicines-table-wrapper">
+                    <table className="medicines-table">
+                      <thead>
+                        <tr>
+                          <th>ID</th>
+                          <th>Type</th>
+                          <th>Quantité</th>
+                          <th>Motif</th>
+                          <th>ID Lot</th>
+                          <th>Produit</th>
+                          <th>Date insertion lot</th>
+                          <th>Actions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stockMovements.map((movement) => {
+                          const isEditing = editingMovementId === movement.id;
+
+                          const renderBatchId = (batchObj) => {
+                            if (!batchObj) return "N/A";
+                            if (typeof batchObj === "object") {
+                              return batchObj.batch_id || batchObj.batchId || "N/A";
+                            }
+                            return batchObj;
+                          };
+
+                          const getProductName = (movement) => {
+                            if (typeof movement.batch === 'object' && movement.batch?.product?.item) {
+                              return movement.batch.product.item;
+                            }
+                            const matchedBatch = batches.find(
+                              (b) => String(b.batch_id || b.batchId) === String(movement.batch?.batch_id || movement.batch)
+                            );
+                            return matchedBatch?.product?.item || 'N/A';
+                          };
+
+                          return (
+                            <tr key={movement.id}>
+                              {isEditing ? (
+                                <>
+                                  <td className="medicine-id">{movement.id}</td>
+                                  <td>
+                                    <select
+                                      name="movement_type"
+                                      value={editMovementForm.movement_type}
+                                      onChange={handleEditMovementChange}
+                                      className="edit-input"
+                                    >
+                                      <option value="IN">IN</option>
+                                      <option value="OUT">OUT</option>
+                                    </select>
+                                  </td>
+                                  <td>
+                                    <input
+                                      type="number"
+                                      min="1"
+                                      name="quantity"
+                                      value={editMovementForm.quantity || ""}
+                                      onChange={handleEditMovementChange}
+                                      className="edit-input"
+                                    />
+                                  </td>
+                                  <td>
+                                    <input
+                                      type="text"
+                                      name="reason"
+                                      value={editMovementForm.reason || ""}
+                                      onChange={handleEditMovementChange}
+                                      className="edit-input"
+                                    />
+                                  </td>
+                                  <td>
+                                    <select
+                                      name="batch"
+                                      value={editMovementForm.batch || ""}
+                                      onChange={handleEditMovementChange}
+                                      className="edit-input"
+                                    >
+                                      <option value="">Sélectionnez un lot</option>
+                                      {batches.map((b) => {
+                                        const batchId = b.batch_id || b.batchId;
+                                        return (
+                                          <option key={batchId} value={batchId}>
+                                            Lot #{batchId} (Exp: {b.expiryDate})
+                                          </option>
+                                        );
+                                      })}
+                                    </select>
+                                  </td>
+                                  <td>{getProductName(movement)}</td>
+                                  <td>{movement.createdAt ? new Date(movement.createdAt).toLocaleString() : 'N/A'}</td>
+                                  <td className="actions">
+                                    <button
+                                      className="action-button save-button"
+                                      onClick={() => handleUpdateMovement(movement.id)}
+                                      title="Sauvegarder"
+                                    >
+                                      ✓
+                                    </button>
+                                    <button
+                                      className="action-button cancel-button"
+                                      onClick={() => setEditingMovementId(null)}
+                                      title="Annuler"
+                                    >
+                                      ✕
+                                    </button>
+                                  </td>
+                                </>
+                              ) : (
+                                <>
+                                  <td className="medicine-id">{movement.id}</td>
+                                  <td>
+                                    <span className={`quantity-badge ${movement.movement_type === 'IN' ? 'normal' : 'low'}`}>
+                                      {movement.movement_type}
+                                    </span>
+                                  </td>
+                                  <td className="quantity">
+                                    <span className="quantity-badge normal">
+                                      {movement.quantity}
+                                    </span>
+                                  </td>
+                                  <td>{movement.reason}</td>
+                                  <td>{renderBatchId(movement.batch)}</td>
+                                  <td>{getProductName(movement)}</td>
+                                  <td>{movement.createdAt ? new Date(movement.createdAt).toLocaleDateString() : 'N/A'}</td>
+                                  <td className="actions">
+                                    <button
+                                      className="action-button edit-button"
+                                      onClick={() => handleEditMovement(movement)}
+                                      title="Éditer"
+                                    >
+                                      ✏️
+                                    </button>
+                                    <button
+                                      className="action-button delete-button"
+                                      onClick={() => handleDeleteMovement(movement.id)}
+                                      title="Supprimer"
+                                    >
+                                      🗑️
+                                    </button>
+                                  </td>
+                                </>
+                              )}
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </section>
+            );
+          })()}
+        </main>
+      </div>
 
       {showChangePasswordForm && (
         <div className="change-password-overlay">
@@ -551,645 +1725,6 @@ const handleDeleteBatch = async (id) => {
           </div>
         </div>
       )}
-
-      <main className="dashboard-main">
-        {isAdmin && (
-          <section className="admin-section">
-            <div className="section-header">
-              <h2>👤 Gestion des Utilisateurs</h2>
-              <button 
-                className="add-button" 
-                onClick={() => setShowRegisterForm(!showRegisterForm)}
-              >
-                {showRegisterForm ? '✕ Fermer' : '+ Ajouter un utilisateur'}
-              </button>
-            </div>
-
-            {showRegisterForm && (
-              <div className="register-form-container">
-                <form onSubmit={handleRegisterSubmit} className="register-form">
-                  <div className="form-group">
-                    <label htmlFor="username">Nom d'utilisateur</label>
-                    <input
-                      id="username"
-                      name="username"
-                      type="text"
-                      value={registerForm.username}
-                      onChange={handleRegisterChange}
-                      placeholder="Entrez le nom d'utilisateur"
-                      required
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label htmlFor="email">Email</label>
-                    <input
-                      id="email"
-                      name="email"
-                      type="email"
-                      value={registerForm.email}
-                      onChange={handleRegisterChange}
-                      placeholder="Entrez l'adresse email"
-                      required
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label htmlFor="password">Mot de passe</label>
-                    <input
-                      id="password"
-                      name="password"
-                      type="password"
-                      value={registerForm.password}
-                      onChange={handleRegisterChange}
-                      placeholder="Entrez le mot de passe"
-                      required
-                    />
-                  </div>
-
-                  <div className="form-group">
-                    <label htmlFor="role">Rôle</label>
-                    <select
-                      id="role"
-                      name="role"
-                      value={registerForm.role}
-                      onChange={handleRegisterChange}
-                    >
-                      <option value="PHARMACIST">Pharmacien</option>
-                      <option value="STOCK_MANAGER">Gestionnaire Stock</option>
-                      <option value="ADMIN">Administrateur</option>
-                    </select>
-                  </div>
-
-                  {registerError && <div className="error-message">{registerError}</div>}
-                  {registerSuccess && <div className="success-message">{registerSuccess}</div>}
-
-                  <button type="submit" className="submit-button">
-                    Créer l'utilisateur
-                  </button>
-                </form>
-              </div>
-            )}
-
-            {users.length > 0 && (
-              <div className="users-table-wrapper">
-                <h3>Liste des Utilisateurs</h3>
-                <table className="users-table">
-                  <thead>
-                    <tr>
-                      <th>Nom d'utilisateur</th>
-                      <th>Email</th>
-                      <th>Rôle</th>
-                      <th>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {users.map((user) => (
-                      <tr key={user.id}>
-                        {editingUser === user.id ? (
-                          <>
-                            <td>
-                              <input
-                                type="text"
-                                name="username"
-                                value={editForm.username}
-                                onChange={handleEditChange}
-                                className="edit-input"
-                              />
-                            </td>
-                            <td>
-                              <input
-                                type="email"
-                                name="email"
-                                value={editForm.email}
-                                onChange={handleEditChange}
-                                className="edit-input"
-                              />
-                            </td>
-                            <td>
-                              <select
-                                name="role"
-                                value={editForm.role}
-                                onChange={handleEditChange}
-                                className="edit-input"
-                              >
-                                <option value="PHARMACIST">Pharmacien</option>
-                                <option value="STOCK_MANAGER">Gestionnaire Stock</option>
-                                <option value="ADMIN">Administrateur</option>
-                              </select>
-                            </td>
-                            <td className="actions">
-                              <button
-                                className="action-button save-button"
-                                onClick={() => handleUpdateUser(user.id)}
-                                title="Sauvegarder"
-                              >
-                                ✓
-                              </button>
-                              <button
-                                className="action-button cancel-button"
-                                onClick={() => setEditingUser(null)}
-                                title="Annuler"
-                              >
-                                ✕
-                              </button>
-                            </td>
-                          </>
-                        ) : (
-                          <>
-                            <td>{user.username}</td>
-                            <td>{user.email}</td>
-                            <td>
-                              <span className={`role-badge role-${user.role.toLowerCase()}`}>
-                                {user.role}
-                              </span>
-                            </td>
-                            <td className="actions">
-                              <button
-                                className="action-button edit-button"
-                                onClick={() => handleEditUser(user)}
-                                title="Éditer"
-                              >
-                                ✏️
-                              </button>
-                              <button
-                                className="action-button delete-button"
-                                onClick={() => handleDeleteUser(user.id)}
-                                title="Supprimer"
-                              >
-                                🗑️
-                              </button>
-                            </td>
-                          </>
-                        )}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </section>
-        )}
-
-        <section className="stats-section">
-          <div className="stat-card">
-            <div className="stat-icon">💊</div>
-            <div className="stat-content">
-              <h3>Médicaments</h3>
-              <p className="stat-value">{totalMedicines}</p>
-            </div>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-icon">📦</div>
-            <div className="stat-content">
-              <h3>Stock Total</h3>
-              <p className="stat-value">{totalStock}</p>
-            </div>
-          </div>
-
-          <div className="stat-card">
-            <div className="stat-icon">💰</div>
-            <div className="stat-content">
-              <h3>Valeur Inventaire</h3>
-              <p className="stat-value">{totalValue.toFixed(2)} DA</p>
-            </div>
-          </div>
-        </section>
-
-        <section className="medicines-section">
-          <div className="section-header">
-            <h2>📦 Inventaire des Médicaments ({medicines.length})</h2>
-            <button 
-              className="add-button" 
-              onClick={() => setShowAddProductForm(!showAddProductForm)}
-            >
-              {showAddProductForm ? '✕ Fermer' : '+ Ajouter'}
-            </button>
-          </div>
-
-          {showAddProductForm && (
-            <div className="add-product-form-container">
-              <form onSubmit={handleAddProductSubmit} className="add-product-form">
-                <div className="form-row">
-                  <div className="form-group">
-                    <label htmlFor="item">Nom du médicament</label>
-                    <input
-                      id="item"
-                      name="item"
-                      type="text"
-                      value={addProductForm.item}
-                      onChange={handleAddProductChange}
-                      placeholder="Ex: Paracétamol 500mg"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="designation">Catégorie</label>
-                    <input
-                      id="designation"
-                      name="designation"
-                      type="text"
-                      value={addProductForm.designation}
-                      onChange={handleAddProductChange}
-                      placeholder="Ex: Analgésique"
-                      required
-                    />
-                  </div>
-                </div>
-
-                <div className="form-row">
-                  <div className="form-group">
-                    <label htmlFor="quantity">Quantité</label>
-                    <input
-                      id="quantity"
-                      name="quantity"
-                      type="number"
-                      value={addProductForm.quantity}
-                      onChange={handleAddProductChange}
-                      placeholder="0"
-                      required
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="unitPrice">Prix unitaire (DA)</label>
-                    <input
-                      id="unitPrice"
-                      name="unitPrice"
-                      type="number"
-                      step="0.01"
-                      value={addProductForm.unitPrice}
-                      onChange={handleAddProductChange}
-                      placeholder="0.00"
-                      required
-                    />
-                  </div>
-                </div>
-
-                {addProductError && <div className="error-message">{addProductError}</div>}
-                {addProductSuccess && <div className="success-message">{addProductSuccess}</div>}
-
-                <button type="submit" className="submit-button">
-                  ✓ Ajouter le médicament
-                </button>
-              </form>
-            </div>
-          )}
-
-          {medicines.length === 0 ? (
-            <div className="no-data">
-              <p>❌ Aucun médicament disponible</p>
-            </div>
-          ) : (
-            <div className="medicines-table-wrapper">
-              <table className="medicines-table">
-                <thead>
-                  <tr>
-                    <th>Id</th>
-                    <th>Nom</th>
-                    <th>Catégorie</th>
-                    <th>Quantité</th>
-                    <th>Prix Unitaire</th>
-                    <th>Total</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {medicines.map((medicine) => {
-                    console.log("Medicine item:", medicine); // Check the console to see exact property names (e.g. id, product_id, or productId)
-                    const isEditing = editingProductId === medicine.product_id;
-                    const quantity = isEditing ? (parseFloat(editProductForm.quantity) || 0) : (medicine.quantity || 0);
-                    const unitPrice = isEditing ? (parseFloat(editProductForm.unitPrice) || 0) : (medicine.unitPrice || 0);
-
-                    return (
-                      <tr key={medicine.product_id}>
-                        {isEditing ? (
-                          <>
-                            <td>
-                              <input
-                                type="text"
-                                name="item"
-                                value={editProductForm.item}
-                                onChange={handleEditProductChange}
-                                className="edit-input"
-                              />
-                            </td>
-                            <td>
-                              <input
-                                type="text"
-                                name="designation"
-                                value={editProductForm.designation}
-                                onChange={handleEditProductChange}
-                                className="edit-input"
-                              />
-                            </td>
-                            <td>
-                              <input
-                                type="number"
-                                name="quantity"
-                                value={editProductForm.quantity}
-                                onChange={handleEditProductChange}
-                                className="edit-input"
-                              />
-                            </td>
-                            <td>
-                              <input
-                                type="number"
-                                step="0.01"
-                                name="unitPrice"
-                                value={editProductForm.unitPrice}
-                                onChange={handleEditProductChange}
-                                className="edit-input"
-                              />
-                            </td>
-                            <td className="total-price">
-                              {(quantity * unitPrice).toFixed(2)} DA
-                            </td>
-                            <td className="actions">
-                              <button
-                                className="action-button save-button"
-                                onClick={() => handleUpdateProduct(medicine.product_id)}
-                                title="Sauvegarder"
-                              >
-                                ✓
-                              </button>
-                              <button
-                                className="action-button cancel-button"
-                                onClick={() => setEditingProductId(null)}
-                                title="Annuler"
-                              >
-                                ✕
-                              </button>
-                            </td>
-                          </>
-                        ) : (
-                          <>
-                            <td className="medicine-id">{medicine.product_id}</td>
-                            <td className="medicine-name">{medicine.item}</td>
-                            <td>
-                              <span className="category-badge">{medicine.designation}</span>
-                            </td>
-                            <td className="quantity">
-                              <span className={`quantity-badge ${quantity < 100 ? 'low' : 'normal'}`}>
-                                {quantity}
-                              </span>
-                            </td>
-                            <td>{unitPrice.toFixed(2)} DA</td>
-                            <td className="total-price">
-                              {(quantity * unitPrice).toFixed(2)} DA
-                            </td>
-                            <td className="actions">
-                              <button
-                                className="action-button edit-button"
-                                onClick={() => handleEditProduct(medicine)}
-                                title="Éditer"
-                              >
-                                ✏️
-                              </button>
-                              <button
-                                className="action-button delete-button"
-                                onClick={() => handleDelete(medicine.product_id)}
-                                title="Supprimer"
-                              >
-                                🗑️
-                              </button>
-                            </td>
-                          </>
-                        )}
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </section>
-        <section className="medicines-section">
-  <div className="section-header">
-    <h2>📦 Lots ({batches.length})</h2>
-    <button 
-      className="add-button" 
-      onClick={() => setShowAddBatchForm(!showAddBatchForm)}
-    >
-      {showAddBatchForm ? '✕ Fermer' : '+ Ajouter'}
-    </button>
-  </div>
-
-  {showAddBatchForm && (
-    <div className="add-product-form-container">
-      <form onSubmit={handleAddBatchSubmit} className="add-product-form">
-        <div className="form-row">
-          <div className="form-group">
-            <label htmlFor="expiryDate">Date d'expiration</label>
-            <input
-              id="expiryDate"
-              name="expiryDate"
-              type="date"
-              value={addBatchForm.expiryDate}
-              onChange={handleAddBatchChange}
-              required
-            />
-          </div>
-
-          <div className="form-group">
-            <label htmlFor="product">Produit</label>
-            <select
-              id="product"
-              name="product"
-              value={addBatchForm.product}
-              onChange={handleAddBatchChange}
-              required
-            >
-              <option value="">Sélectionnez un médicament</option>
-              {medicines.map((p) => {
-                const itemId = p.id ?? p.productId ?? p.product_id;
-                const itemName = p.nom ?? p.name ?? p.item ?? p.designation;
-                
-                return (
-                  <option key={itemId} value={itemId}>
-                    {itemName}
-                  </option>
-                );
-              })}
-            </select>
-          </div>
-        </div>
-
-        <div className="form-row">
-          <div className="form-group">
-            <label htmlFor="batch_quantity">Quantité du lot</label>
-            <input
-              id="batch_quantity"
-              name="batch_quantity"
-              type="number"
-              min="1"
-              value={addBatchForm.batch_quantity || ''}
-              onChange={handleAddBatchChange}
-              placeholder="Ex: 50"
-              required
-            />
-          </div>
-        </div>
-
-        {addBatchError && <div className="error-message">{addBatchError}</div>}
-        {addBatchSuccess && <div className="success-message">{addBatchSuccess}</div>}
-
-        <button type="submit" className="submit-button">
-          ✓ Ajouter le lot
-        </button>
-      </form>
-    </div>
-  )}
-
-  {batches.length === 0 ? (
-    <div className="no-data">
-      <p>❌ Aucun lot disponible</p>
-    </div>
-  ) : (
-    <div className="medicines-table-wrapper">
-      <table className="medicines-table">
-        <thead>
-          <tr>
-            <th>Id lot</th>
-            <th>Date d'expiration</th>
-            <th>Quantité</th>
-            <th>Id Produit</th>
-            <th>Produit</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {batches.map((batch) => {
-            const isEditing = editingBatchId === batch.batch_id;
-            const rawExpiry = isEditing ? editBatchForm.expiryDate : batch.expiryDate;
-            const quantity = isEditing ? editBatchForm.batch_quantity : (batch.batch_quantity || batch.quantity || 0);
-            
-            const renderProductId = (prod) => {
-              if (!prod) return "N/A";
-              if (typeof prod === "object") {
-                return prod.product_id || prod.productId || prod.id || "N/A";
-              }
-              return prod;
-            };
-
-            const renderProductName = (prod) => {
-              if (!prod) return "N/A";
-              if (typeof prod === "object") {
-                return prod.item || prod.designation || prod.nom || prod.name || "N/A";
-              }
-              const match = medicines.find(m => (m.id ?? m.productId ?? m.product_id) === prod);
-              return match ? (match.nom || match.name || match.item || match.designation) : "N/A";
-            };
-
-            return (
-              <tr key={batch.batch_id}>
-                {isEditing ? (
-                  <>
-                    <td className="medicine-id">{batch.batch_id}</td>
-                    <td>
-                      <input
-                        type="date"
-                        name="expiryDate"
-                        value={editBatchForm.expiryDate || ""}
-                        onChange={handleEditBatchChange}
-                        className="edit-input"
-                      />
-                    </td>
-                    <td>
-                      <input
-                        type="number"
-                        min="1"
-                        name="batch_quantity"
-                        value={editBatchForm.batch_quantity || ""}
-                        onChange={handleEditBatchChange}
-                        className="edit-input"
-                      />
-                    </td>
-                    <td>{editBatchForm.product || "N/A"}</td>
-                    <td>
-                      <select
-                        name="product"
-                        value={editBatchForm.product || ""}
-                        onChange={handleEditBatchChange}
-                        className="edit-input"
-                      >
-                        <option value="">Sélectionnez un médicament</option>
-                        {medicines.map((m) => {
-                          const mId = m.id ?? m.productId ?? m.product_id;
-                          return (
-                            <option key={mId} value={mId}>
-                              {m.nom || m.name || m.item || m.designation}
-                            </option>
-                          );
-                        })}
-                      </select>
-                    </td>
-                    <td className="actions">
-                      <button
-                        className="action-button save-button"
-                        onClick={() => handleUpdateBatch(batch.batch_id)}
-                        title="Sauvegarder"
-                      >
-                        ✓
-                      </button>
-                      <button
-                        className="action-button cancel-button"
-                        onClick={() => setEditingBatchId(null)}
-                        title="Annuler"
-                      >
-                        ✕
-                      </button>
-                    </td>
-                  </>
-                ) : (
-                  <>
-                    <td className="medicine-id">{batch.batch_id}</td>
-                    {(() => {
-                      const daysUntilExpiry = rawExpiry 
-                        ? Math.ceil((new Date(rawExpiry) - new Date()) / (1000 * 60 * 60 * 24))
-                        : 0;
-                      return (
-                        <td>
-                          <span className={`quantity-badge ${daysUntilExpiry < 30 ? 'low' : 'normal'}`}>
-                            {rawExpiry || 'N/A'}
-                          </span>
-                        </td>
-                      );
-                    })()}
-                    <td className="quantity">
-                      <span className="quantity-badge normal">
-                        {quantity}
-                      </span>
-                    </td>
-                    <td>{renderProductId(batch.product)}</td>
-                    <td className="medicine-name">{renderProductName(batch.product)}</td>
-                    <td className="actions">
-                      <button
-                        className="action-button edit-button"
-                        onClick={() => handleEditBatch(batch)}
-                        title="Éditer"
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        className="action-button delete-button"
-                        onClick={() => handleDeleteBatch(batch.batch_id)}
-                        title="Supprimer"
-                      >
-                        🗑️
-                      </button>
-                    </td>
-                  </>
-                )}
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
-    </div>
-  )}
-</section>
-      </main>
     </div>
   );
 }

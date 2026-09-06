@@ -80,7 +80,7 @@ export const productService = {
 };
 export const batchService = {
   getAll: () => {
-    console.log('Fetching all batches...');
+    //console.log('Fetching all batches...');
     return apiClient.get('/batches');
   },
   getById: (id) => {
@@ -96,6 +96,28 @@ create: (batchData) => {
   delete: (id) => {
     return apiClient.delete(`/batches/${id}`);
   },
+  getExpired: (date) => {
+  return apiClient.get(`/batches/expired?date=${date}`);
+},
+};
+
+export const stockMovementService = {
+  getAll: () => {
+    //console.log('Fetching all stock movements...');
+    return apiClient.get('/stock-movements'); // Adjust endpoint path if needed
+  },
+  getById: (id) => {
+    return apiClient.get(`/stock-movements/${id}`);
+  },
+  create: (movementData) => {
+    return apiClient.post('/stock-movements', movementData);
+  },
+  update: (id, movementData) => {
+    return apiClient.put(`/stock-movements/${id}`, movementData);
+  },
+  delete: (id) => {
+    return apiClient.delete(`/stock-movements/${id}`);
+  }
 };
 
 export const userService = {
