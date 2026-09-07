@@ -13,4 +13,5 @@ public interface IProductService {
     List<Product> getProductsByDesignation(String designation);
     Product updateProduct(Product productDetails);
     boolean deleteProduct(Long productId);
+    Long calculateTotalProductQuantity(Long productId);
 }

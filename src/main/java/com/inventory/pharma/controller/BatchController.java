@@ -1,7 +1,11 @@
 package com.inventory.pharma.controller;
 
 import com.inventory.pharma.model.Batch;
+import com.inventory.pharma.model.StockMovement;
+import com.inventory.pharma.model.enumerate.MovementType;
 import com.inventory.pharma.service.IBatchService;
+import com.inventory.pharma.service.IStockMovementService;
+import jakarta.persistence.EntityNotFoundException;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -20,6 +24,9 @@ public class BatchController {
 
     @Autowired
     private IBatchService batchService;
+
+    @Autowired
+    private IStockMovementService stockMovementService;
 
     @PostMapping
     @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
@@ -86,5 +93,35 @@ public class BatchController {
             return new ResponseEntity<>(HttpStatus.NO_CONTENT);
         }
         return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+    }
+
+    @PostMapping("/clear-expired/{batchId}")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
+    public ResponseEntity<StockMovement> clearExpiredBatch(@PathVariable Long batchId) {
+        Batch batch = batchService.getBatchById(batchId)
+                .orElseThrow(() -> new EntityNotFoundException("Lot non trouvé : " + batchId));
+
+        if (batch.getBatch_quantity() < 0) {
+            return ResponseEntity.badRequest().build();
+        }
+
+        StockMovement movement = new StockMovement();
+        movement.setMovement_type(MovementType.OUT);
+        movement.setQuantity(batch.getBatch_quantity());
+        movement.setReason("Retrait - Produit Périmé");
+        movement.setBatch(batch);
+
+        StockMovement createdMovement = stockMovementService.createStockMovement(movement);
+        batchService.deleteBatch(batch.getBatch_id());
+        return ResponseEntity.status(HttpStatus.CREATED).body(createdMovement);
+    }
+
+    @PutMapping("/{id}/archive")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
+    public ResponseEntity<Batch> archiveBatch(@PathVariable Long id) {
+
+        Batch archivedBatch = batchService.archiveBatch(id);
+
+        return ResponseEntity.ok(archivedBatch);
     }
 }

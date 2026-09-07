@@ -162,4 +162,43 @@ public class BatchServiceImpl implements IBatchService {
         }
         return null;
     }
+
+    @Override
+    @Transactional
+    public Batch archiveBatch(Long id) {
+
+        Batch batch = batchRepository.findById(id)
+                .orElseThrow(() ->
+                        new EntityNotFoundException("Lot non trouvé : " + id)
+                );
+
+        // Si le lot est déjà archivé, ne pas créer un deuxième mouvement OUT
+        if (batch.isArchived()) {
+            return batch;
+        }
+
+        long quantity = batch.getBatch_quantity();
+
+        // Créer le mouvement OUT avant de mettre le lot à zéro
+        if (quantity > 0) {
+
+            StockMovement stockMovement = new StockMovement(
+                    MovementType.OUT,
+                    quantity,
+                    "Archivage du lot",
+                    LocalDateTime.now(),
+                    batch
+            );
+
+            stockMovementService.createInitialStockMovement(stockMovement);
+        }
+
+        // Le lot est ensuite marqué comme archivé
+        batch.setArchived(true);
+        Product product = productRepository.findById(batch.getProduct().getProduct_id())
+                .orElseThrow(()->new RuntimeException("Product associated not found"));
+        product.setQuantity(product.getQuantity() - quantity);
+        productRepository.save(product);
+        return batchRepository.save(batch);
+    }
 }

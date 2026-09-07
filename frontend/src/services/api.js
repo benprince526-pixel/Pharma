@@ -99,6 +99,8 @@ create: (batchData) => {
   getExpired: (date) => {
   return apiClient.get(`/batches/expired?date=${date}`);
 },
+clearExpired: (batchId) => apiClient.post(`/batches/clear-expired/${batchId}`),
+  archive: (batchId) => apiClient.put(`/batches/${batchId}/archive`),
 };
 
 export const stockMovementService = {

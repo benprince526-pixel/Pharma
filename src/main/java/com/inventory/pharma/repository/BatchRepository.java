@@ -21,4 +21,7 @@ public interface BatchRepository extends JpaRepository<Batch, Long> {
 
     @Query("SELECT COALESCE(SUM(b.batch_quantity), 0) FROM Batch b WHERE b.product.id = :productId")
     long sumQuantityByProductId(@Param("productId") Long productId);
+
+    @Query("SELECT b FROM Batch b WHERE b.product.id = :productId AND b.archived = false")
+    List<Batch> findByProductProduct_idAndArchivedFalse(@Param("productId") Long productId);
 }

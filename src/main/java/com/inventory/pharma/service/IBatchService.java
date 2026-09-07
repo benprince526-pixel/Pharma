@@ -14,6 +14,6 @@ public interface IBatchService {
     List<Batch> getUpcomingExpiredBatches(LocalDate date);
     Batch updateBatch(Batch batchDetails);
     boolean deleteBatch(Long batchId);
-
+    Batch archiveBatch(Long id);
     List<Batch> getBatchesByProductId(Long id);
 }

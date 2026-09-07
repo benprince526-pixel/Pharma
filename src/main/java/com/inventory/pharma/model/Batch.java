@@ -21,6 +21,10 @@ public class Batch {
     @Enumerated(EnumType.STRING)
     private BatchStatus status = BatchStatus.ACTIVE;
 
+    @Column(nullable = false)
+    private boolean archived = false; // NOUVEAU CHAMP
+
+
     @ManyToOne
     @JoinColumn(name = "product", nullable = false)
     private Product product;
@@ -67,5 +71,14 @@ public class Batch {
 
     public void setStockMovements(List<StockMovement> stockMovements) {
         this.stockMovements = stockMovements;
+    }
+
+    // Getters et Setters
+    public boolean isArchived() {
+        return archived;
+    }
+
+    public void setArchived(boolean archived) {
+        this.archived = archived;
     }
 }

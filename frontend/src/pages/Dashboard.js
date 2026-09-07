@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { productService, authService, userService, decodeToken, batchService, stockMovementService } from '../services/api';
 import '../styles/Dashboard.css';
+import * as XLSX from 'xlsx';
 
 function Dashboard({ onLogout }) {
   const [activeSection, setActiveSection] = useState('inventory');
@@ -89,19 +90,19 @@ function Dashboard({ onLogout }) {
     }
   };
 
-  const fetchBatches = async () => {
-    try {
-      const response = await batchService.getAll();
-      if (response.data && Array.isArray(response.data)) {
-        setBatches(response.data);
-      }
-    } catch (error) {
-      console.error('Error fetching batches from API:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
+const fetchBatches = async () => {
+  try {
+    const response = await batchService.getAll();
 
+    console.log("BATCHES AFTER FETCH:", response.data);
+
+    if (response.data && Array.isArray(response.data)) {
+      setBatches(response.data);
+    }
+  } catch (error) {
+    console.error(error);
+  }
+};
   useEffect(() => {
     fetchMedicines();
     fetchBatches();
@@ -132,6 +133,113 @@ function Dashboard({ onLogout }) {
       fetchUsers();
     }
   }, [isAdmin]);
+
+  const exportToExcel = (data, fileName, sheetName = 'Export') => {
+    if (!data || data.length === 0) {
+      alert("Aucune donnée à exporter.");
+      return;
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const workbook = XLSX.utils.book_new();
+
+    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
+
+    XLSX.writeFile(workbook, `${fileName}.xlsx`);
+  };
+
+  const exportToCSV = (data, fileName) => {
+    if (!data || data.length === 0) {
+      alert("Aucune donnée à exporter.");
+      return;
+    }
+
+    const worksheet = XLSX.utils.json_to_sheet(data);
+    const csv = XLSX.utils.sheet_to_csv(worksheet);
+
+    const blob = new Blob(
+      ['\ufeff' + csv],
+      { type: 'text/csv;charset=utf-8;' }
+    );
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+
+    link.href = url;
+    link.download = `${fileName}.csv`;
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    URL.revokeObjectURL(url);
+  };
+
+  const handleExportMedicines = (format) => {
+    const data = medicines.map(medicine => ({
+      ID: medicine.product_id,
+      Nom: medicine.item,
+      Catégorie: medicine.designation,
+      Quantité: medicine.quantity || 0,
+      'Prix unitaire (DA)': medicine.unitPrice || 0,
+      'Valeur totale (DA)': (medicine.quantity || 0) * (medicine.unitPrice || 0)
+    }));
+
+    if (format === 'excel') {
+      exportToExcel(data, 'inventaire_medicaments', 'Médicaments');
+    } else {
+      exportToCSV(data, 'inventaire_medicaments');
+    }
+  };
+
+    const handleExportBatches = (format) => {
+    const data = batches.map(batch => ({
+      'ID Lot': batch.batch_id,
+      'Date expiration': batch.expiryDate || '',
+      Quantité: batch.batch_quantity || 0,
+      'ID Produit':
+        batch.product?.product_id ||
+        batch.product?.productId ||
+        '',
+      Produit:
+        batch.product?.item ||
+        batch.product?.designation ||
+        '',
+      Statut: batch.archived ? 'Archivé' : 'Actif'
+    }));
+
+    if (format === 'excel') {
+      exportToExcel(data, 'lots', 'Lots');
+    } else {
+      exportToCSV(data, 'lots');
+    }
+  };
+
+  const handleExportMovements = (format) => {
+    const data = stockMovements.map(movement => ({
+      ID: movement.id,
+      Type: movement.movement_type,
+      Quantité: movement.quantity,
+      Motif: movement.reason,
+      'ID Lot':
+        movement.batch?.batch_id ||
+        movement.batch?.batchId ||
+        '',
+      Produit:
+        movement.batch?.product?.item ||
+        '',
+      Date:
+        movement.createdAt
+          ? new Date(movement.createdAt).toLocaleString()
+          : ''
+    }));
+
+    if (format === 'excel') {
+      exportToExcel(data, 'mouvements_stock', 'Mouvements');
+    } else {
+      exportToCSV(data, 'mouvements_stock');
+    }
+  };
 
   const handleLogout = () => {
     authService.logout();
@@ -175,7 +283,9 @@ function Dashboard({ onLogout }) {
         unitPrice: ''
       });
 
-      fetchMedicines();
+      await fetchStockMovements();
+      await fetchBatches();
+      await fetchMedicines();
       setTimeout(() => setShowAddProductForm(false), 1500);
 
     } catch (error) {
@@ -220,7 +330,9 @@ function Dashboard({ onLogout }) {
       }
       
       setEditingProductId(null);
-      fetchMedicines();
+      await fetchStockMovements();
+      await fetchBatches();
+      await fetchMedicines();
     } catch (error) {
       console.error('Error updating product:', error);
       alert('Erreur lors de la mise à jour du médicament');
@@ -293,7 +405,9 @@ function Dashboard({ onLogout }) {
 
       setAddBatchSuccess('Lot ajouté avec succès!');
       setAddBatchForm(initialAddBatchState);
-      fetchBatches();
+      await fetchStockMovements();
+      await fetchBatches();
+      await fetchMedicines();
       setTimeout(() => setShowAddBatchForm(false), 1500);
     } catch (error) {
       console.error('Error adding Batch:', error);
@@ -350,7 +464,9 @@ function Dashboard({ onLogout }) {
       }
 
       setEditingBatchId(null);
-      fetchBatches();
+      await fetchStockMovements();
+      await fetchBatches();
+      await fetchMedicines();
     } catch (error) {
       console.error('Error updating Batch:', error);
       alert(error.response?.data?.message || 'Erreur lors de la mise à jour du lot');
@@ -370,6 +486,35 @@ function Dashboard({ onLogout }) {
       }
     }
   };
+// Retirer la quantité (Mouvement de sortie)
+const handleClearExpiredBatch = async (batch) => {
+  if (window.confirm(`Retirer toute la quantité (${batch.batch_quantity}) du lot #${batch.batch_id} ?`)) {
+    try {
+      await batchService.clearExpired(batch.batch_id);
+      await fetchStockMovements();
+      await fetchBatches();
+      await fetchMedicines();
+    } catch (error) {
+      console.error("Erreur lors du retrait du lot périmé:", error);
+      alert("Erreur lors du retrait du lot");
+    }
+  }
+};
+
+// Archiver le lot (Masquer des calculs sans changer batch_quantity)
+const handleArchiveBatch = async (batch) => {
+  if (window.confirm(`Archiver le lot #${batch.batch_id} ? Il sera exclu des calculs de stock.`)) {
+    try {
+      await batchService.archive(batch.batch_id);
+      await fetchStockMovements();
+      await fetchBatches();
+      await fetchMedicines();
+    } catch (error) {
+      console.error("Erreur lors de l'archivage du lot:", error);
+      alert("Erreur lors de l'archivage");
+    }
+  }
+};
 
   const initialAddMovementState = {
     movement_type: 'IN',
@@ -448,9 +593,9 @@ function Dashboard({ onLogout }) {
 
       setAddMovementSuccess('Mouvement de stock ajouté avec succès!');
       setAddMovementForm(initialAddMovementState);
-      fetchStockMovements();
-      fetchMedicines();
-      fetchBatches();
+      await fetchStockMovements();
+      await fetchBatches();
+      await fetchMedicines();
       setTimeout(() => setShowAddMovementForm(false), 1500);
     } catch (error) {
       console.error('Error adding stock movement:', error);
@@ -509,9 +654,9 @@ function Dashboard({ onLogout }) {
       }
 
       setEditingMovementId(null);
-      fetchStockMovements();
-      fetchMedicines();
-      fetchBatches();
+      await fetchStockMovements();
+      await fetchBatches();
+      await fetchMedicines();
     } catch (error) {
       console.error('Error updating stock movement:', error);
       alert(error.response?.data?.message || 'Erreur lors de la mise à jour du mouvement');
@@ -525,9 +670,9 @@ function Dashboard({ onLogout }) {
           await stockMovementService.delete(id);
         }
         setStockMovements(stockMovements.filter((m) => m.id !== id));
-        fetchStockMovements();
-        fetchMedicines();
-        fetchBatches();
+        await fetchStockMovements();
+        await fetchBatches();
+        await fetchMedicines();
       } catch (error) {
         console.error('Error deleting stock movement:', error);
         alert('Erreur lors de la suppression');
@@ -623,24 +768,44 @@ function Dashboard({ onLogout }) {
   };
 
   const totalMedicines = medicines.length;
-  const totalStock = medicines.reduce((sum, med) => sum + med.quantity, 0);
-  const totalValue = medicines.reduce((sum, med) => sum + med.quantity * med.unitPrice, 0);
 
-  const expiredBatches = batches.filter(batch => {
-    if (!batch.expiryDate) return false;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const expiry = new Date(batch.expiryDate);
-    return expiry < today;
-  });
+    const totalStock = batches
+      .filter(batch => !batch.archived)
+      .reduce(
+        (total, batch) => total + batch.batch_quantity,
+        0
+      );
 
-  const activeBatches = batches.filter(batch => {
-    if (!batch.expiryDate) return false;
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const expiry = new Date(batch.expiryDate);
-    return expiry >= today;
-  });
+   const totalValue = batches.reduce((sum, batch) => {
+      const productId =
+        batch.product?.product_id ||
+        batch.product?.productId;
+
+      const product = medicines.find(
+        m => (m.product_id || m.productId) === productId
+      );
+
+      return sum + (batch.batch_quantity || 0) * (product?.unitPrice || 0);
+    }, 0);
+  console.log("MEDICINES:", medicines);
+  console.log("BATCHES:", batches);
+  console.log("TOTAL STOCK:", totalStock);
+  console.log("TOTAL VALUE:", totalValue);
+
+    const activeBatches = batches.filter(batch => {
+  if (batch.archived) return false;
+  if (!batch.expiryDate) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return new Date(batch.expiryDate) >= today;
+});
+
+const expiredBatches = batches.filter(batch => {
+  if (!batch.expiryDate) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  return new Date(batch.expiryDate) < today;
+});
 
   if (loading) {
     return (
@@ -936,7 +1101,23 @@ function Dashboard({ onLogout }) {
           {activeSection === 'inventory' && (
             <section className="medicines-section">
               <div className="section-header">
-                <h2>📦 Inventaire des Médicaments ({medicines.length})</h2>
+              <h2>📦 Inventaire des Médicaments ({medicines.length})</h2>
+
+              <div className="header-actions">
+                <button
+                  className="export-button"
+                  onClick={() => handleExportMedicines('excel')}
+                >
+                  📊 Excel
+                </button>
+
+                <button
+                  className="export-button"
+                  onClick={() => handleExportMedicines('csv')}
+                >
+                  📄 CSV
+                </button>
+
                 <button 
                   className="add-button" 
                   onClick={() => setShowAddProductForm(!showAddProductForm)}
@@ -944,6 +1125,7 @@ function Dashboard({ onLogout }) {
                   {showAddProductForm ? '✕ Fermer' : '+ Ajouter'}
                 </button>
               </div>
+            </div>
 
               {showAddProductForm && (
                 <div className="add-product-form-container">
@@ -1143,7 +1325,26 @@ function Dashboard({ onLogout }) {
           {activeSection === 'batches' && (
             <section className="medicines-section">
               <div className="section-header">
+                <div className="section-header">
                 <h2>📦 Lots ({batches.length})</h2>
+
+                <div className="header-actions">
+                  <button
+                    className="export-button"
+                    onClick={() => handleExportBatches('excel')}
+                  >
+                    📊 Excel
+                  </button>
+
+                  <button
+                    className="export-button"
+                    onClick={() => handleExportBatches('csv')}
+                  >
+                    📄 CSV
+                  </button>
+
+                </div>
+              </div>
                 <button 
                   className="add-button" 
                   onClick={() => setShowAddBatchForm(!showAddBatchForm)}
@@ -1382,15 +1583,42 @@ function Dashboard({ onLogout }) {
                   </thead>
 
                   <tbody>
-                    {expiredBatches.map(batch => (
-                      <tr key={batch.batch_id}>
-                        <td>{batch.batch_id}</td>
-                        <td>{batch.product?.item}</td>
-                        <td>{batch.expiryDate}</td>
-                        <td>{batch.batch_quantity}</td>
-                      </tr>
-                    ))}
-                  </tbody>
+                  {expiredBatches.map(batch => (
+                    <tr key={batch.batch_id}>
+                      <td>{batch.batch_id}</td>
+                      <td>{batch.product?.item}</td>
+                      <td>{batch.expiryDate}</td>
+                      <td>{batch.batch_quantity}</td>
+                      <td className="actions">
+                      {!batch.archived && (
+                        <>
+                          <button 
+                            className="action-button delete-button"
+                            onClick={() => handleClearExpiredBatch(batch)}
+                            title="Créer un mouvement de sortie et mettre la quantité à 0"
+                          >
+                            🗑️ Retirer du stock
+                          </button>
+
+                          <button 
+                            className="action-button edit-button"
+                            onClick={() => handleArchiveBatch(batch)}
+                            title="Conserver la quantité mais ignorer dans le calcul de stock"
+                          >
+                            📦 Archiver
+                          </button>
+                        </>
+                      )}
+
+                      {batch.archived && (
+                        <span className="archived-label">
+                          📦 Archivé
+                        </span>
+                      )}
+</td>
+                    </tr>
+                  ))}
+                </tbody>
                 </table>
               </div>
             </section>
@@ -1411,6 +1639,21 @@ function Dashboard({ onLogout }) {
                   >
                     {showAddMovementForm ? '✕ Fermer' : '+ Ajouter'}
                   </button>
+                  <div className="header-actions">
+                      <button
+                        className="export-button"
+                        onClick={() => handleExportMovements('excel')}
+                      >
+                        📊 Excel
+                      </button>
+
+                      <button
+                        className="export-button"
+                        onClick={() => handleExportMovements('csv')}
+                      >
+                        📄 CSV
+                      </button>
+                    </div>
                 </div>
 
                 {showAddMovementForm && (

@@ -568,18 +568,23 @@ body {
   grid-template-columns: 1fr 1fr;
   gap: 16px;
 }
-
 .form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-}
-
-.form-group {
   display: flex;
-  flex-direction: column;
+  flex-wrap: nowrap;
+  gap: 20px;
+  width: 100%;
+  padding-bottom: 5px;
 }
 
+.form-row .form-group {
+  flex: 0 0 220px;
+}
+
+.form-row .form-group input,
+.form-row .form-group select {
+  width: 100%;
+  box-sizing: border-box;
+}
 .form-group label {
   font-size: 13px;
   font-weight: 600;
@@ -874,4 +879,18 @@ body {
 .dashboard-main {
     flex: 1;
     padding: 20px;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.export-button {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-weight: 600;
 }

@@ -1,6 +1,8 @@
 package com.inventory.pharma.service.impl;
 
+import com.inventory.pharma.model.Batch;
 import com.inventory.pharma.model.Product;
+import com.inventory.pharma.repository.BatchRepository;
 import com.inventory.pharma.repository.ProductRepository;
 import com.inventory.pharma.service.IProductService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,6 +16,16 @@ public class ProductServiceImpl implements IProductService {
 
     @Autowired
     private ProductRepository productRepository;
+
+    @Autowired
+    private BatchRepository batchRepository;
+
+    public Long calculateTotalProductQuantity(Long productId) {
+        List<Batch> activeBatches = batchRepository.findByProductProduct_idAndArchivedFalse(productId);
+        return activeBatches.stream()
+                .mapToLong(Batch::getBatch_quantity)
+                .sum();
+    }
 
     public Product createProduct(Product product) {
         return productRepository.save(product);
