@@ -134,113 +134,125 @@ const fetchBatches = async () => {
     }
   }, [isAdmin]);
 
-  const exportToExcel = (data, fileName, sheetName = 'Export') => {
-    if (!data || data.length === 0) {
-      alert("Aucune donnée à exporter.");
-      return;
-    }
+const exportToExcel = async (
+  templatePath,
+  data,
+  fileName
+) => {
+  if (!data || data.length === 0) {
+    alert("Aucune donnée à exporter.");
+    return;
+  }
 
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
+  const response = await fetch(templatePath);
 
-    XLSX.utils.book_append_sheet(workbook, worksheet, sheetName);
-
-    XLSX.writeFile(workbook, `${fileName}.xlsx`);
-  };
-
-  const exportToCSV = (data, fileName) => {
-    if (!data || data.length === 0) {
-      alert("Aucune donnée à exporter.");
-      return;
-    }
-
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const csv = XLSX.utils.sheet_to_csv(worksheet);
-
-    const blob = new Blob(
-      ['\ufeff' + csv],
-      { type: 'text/csv;charset=utf-8;' }
+  if (!response.ok) {
+    throw new Error(
+      `Template introuvable : ${templatePath}`
     );
+  }
 
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
+  const arrayBuffer = await response.arrayBuffer();
 
-    link.href = url;
-    link.download = `${fileName}.csv`;
+  const workbook = XLSX.read(arrayBuffer, {
+    type: "array"
+  });
 
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const sheet =
+    workbook.Sheets[workbook.SheetNames[0]];
 
-    URL.revokeObjectURL(url);
-  };
+  // Première ligne de données
+  const startRow = 10;
 
-  const handleExportMedicines = (format) => {
-    const data = medicines.map(medicine => ({
-      ID: medicine.product_id,
-      Nom: medicine.item,
-      Catégorie: medicine.designation,
-      Quantité: medicine.quantity || 0,
-      'Prix unitaire (DA)': medicine.unitPrice || 0,
-      'Valeur totale (DA)': (medicine.quantity || 0) * (medicine.unitPrice || 0)
-    }));
+  data.forEach((rowData, index) => {
+    const row = startRow + index;
 
-    if (format === 'excel') {
-      exportToExcel(data, 'inventaire_medicaments', 'Médicaments');
-    } else {
-      exportToCSV(data, 'inventaire_medicaments');
-    }
-  };
+    Object.values(rowData).forEach(
+      (value, colIndex) => {
+        const cell = XLSX.utils.encode_cell({
+          r: row - 1,
+          c: colIndex
+        });
 
-    const handleExportBatches = (format) => {
-    const data = batches.map(batch => ({
-      'ID Lot': batch.batch_id,
-      'Date expiration': batch.expiryDate || '',
-      Quantité: batch.batch_quantity || 0,
-      'ID Produit':
-        batch.product?.product_id ||
-        batch.product?.productId ||
-        '',
-      Produit:
-        batch.product?.item ||
-        batch.product?.designation ||
-        '',
-      Statut: batch.archived ? 'Archivé' : 'Actif'
-    }));
+        sheet[cell] = {
+          ...(sheet[cell] || {}),
+          v: value
+        };
+      }
+    );
+  });
 
-    if (format === 'excel') {
-      exportToExcel(data, 'lots', 'Lots');
-    } else {
-      exportToCSV(data, 'lots');
-    }
-  };
+  const range = XLSX.utils.decode_range(
+    sheet["!ref"]
+  );
 
-  const handleExportMovements = (format) => {
-    const data = stockMovements.map(movement => ({
-      ID: movement.id,
-      Type: movement.movement_type,
-      Quantité: movement.quantity,
-      Motif: movement.reason,
-      'ID Lot':
-        movement.batch?.batch_id ||
-        movement.batch?.batchId ||
-        '',
-      Produit:
-        movement.batch?.product?.item ||
-        '',
-      Date:
-        movement.createdAt
-          ? new Date(movement.createdAt).toLocaleString()
-          : ''
-    }));
+  range.e.r = Math.max(
+    range.e.r,
+    startRow - 1 + data.length
+  );
 
-    if (format === 'excel') {
-      exportToExcel(data, 'mouvements_stock', 'Mouvements');
-    } else {
-      exportToCSV(data, 'mouvements_stock');
-    }
-  };
+  sheet["!ref"] =
+    XLSX.utils.encode_range(range);
 
+  XLSX.writeFile(
+    workbook,
+    `${fileName}.xlsx`
+  );
+};
+
+const handleExportMedicines = async () => {
+  const data = medicines.map(m => ({
+    id: m.product_id,
+    nom: m.item,
+    categorie: m.designation,
+    quantite: m.quantity || 0,
+    prix: m.unitPrice || 0,
+    total: (m.quantity || 0) * (m.unitPrice || 0)
+  }));
+
+  await exportToExcel(
+    "/templates/inventaire-produits.xlsx",
+    data,
+    "inventaire_medicaments"
+  );
+};
+
+const handleExportBatches = async () => {
+  const data = batches.map(b => ({
+    idLot: b.batch_id,
+    expiration: b.expiryDate,
+    quantite: b.batch_quantity,
+    idProduit: b.product?.product_id,
+    produit: b.product?.item,
+    statut: b.archived ? "Archivé" : "Actif"
+  }));
+
+  await exportToExcel(
+    "/templates/inventaire-lots.xlsx",
+    data,
+    "lots"
+  );
+};
+
+const handleExportMovements = async () => {
+  const data = stockMovements.map(m => ({
+    id: m.id,
+    type: m.movement_type,
+    quantite: m.quantity,
+    motif: m.reason,
+    lot: m.batch?.batch_id,
+    produit: m.batch?.product?.item,
+    date: m.createdAt
+      ? new Date(m.createdAt).toLocaleString()
+      : ""
+  }));
+
+  await exportToExcel(
+    "/templates/inventaire-mouvements.xlsx",
+    data,
+    "mouvements_stock"
+  );
+};
   const handleLogout = () => {
     authService.logout();
     onLogout();
