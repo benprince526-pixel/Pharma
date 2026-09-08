@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { productService, authService, userService, decodeToken, batchService, stockMovementService } from '../services/api';
 import '../styles/Dashboard.css';
-import * as XLSX from 'xlsx';
+import { exportWithTemplate, exportToCSV } from '../services/excelService';
 
 function Dashboard({ onLogout }) {
   const [activeSection, setActiveSection] = useState('inventory');
@@ -134,125 +134,68 @@ const fetchBatches = async () => {
     }
   }, [isAdmin]);
 
-const exportToExcel = async (
-  templatePath,
-  data,
-  fileName
-) => {
-  if (!data || data.length === 0) {
-    alert("Aucune donnée à exporter.");
-    return;
-  }
+  const handleExportMedicines = async (format = 'excel') => {
+    const data = medicines.map((m, index) => ({
+      id: m.product_id || index + 1,
+      nom: m.item || '',
+      categorie: m.designation || '',
+      quantite: m.quantity || 0,
+      prix: m.unitPrice || 0,
+      total: (m.quantity || 0) * (m.unitPrice || 0)
+    }));
 
-  const response = await fetch(templatePath);
+    if (format === 'csv') {
+      exportToCSV(data, 'inventaire_medicaments');
+    } else {
+      await exportWithTemplate(
+        '/templates/inventaire-produits.xlsx',
+        data,
+        'inventaire_medicaments'
+      );
+    }
+  };
 
-  if (!response.ok) {
-    throw new Error(
-      `Template introuvable : ${templatePath}`
-    );
-  }
+  const handleExportBatches = async (format = 'excel') => {
+    const data = batches.map(b => ({
+      idLot: b.batch_id,
+      produit: b.product?.item || (typeof b.product === 'string' ? b.product : 'N/A'),
+      quantite: b.batch_quantity || 0,
+      expiration: b.expiryDate || '',
+      statut: b.archived ? 'Archivé' : 'Actif'
+    }));
 
-  const arrayBuffer = await response.arrayBuffer();
+    if (format === 'csv') {
+      exportToCSV(data, 'inventaire_lots');
+    } else {
+      await exportWithTemplate(
+        '/templates/inventaire-lots.xlsx',
+        data,
+        'lots'
+      );
+    }
+  };
 
-  const workbook = XLSX.read(arrayBuffer, {
-    type: "array"
-  });
+  const handleExportMovements = async (format = 'excel') => {
+    const data = stockMovements.map(m => ({
+      id: m.id,
+      date: m.createdAt ? new Date(m.createdAt).toLocaleString('fr-FR') : '',
+      type: m.movement_type,
+      produit: m.batch?.product?.item || 'N/A',
+      lot: m.batch?.batch_id || 'N/A',
+      quantite: m.quantity || 0,
+      motif: m.reason || ''
+    }));
 
-  const sheet =
-    workbook.Sheets[workbook.SheetNames[0]];
-
-  // Première ligne de données
-  const startRow = 10;
-
-  data.forEach((rowData, index) => {
-    const row = startRow + index;
-
-    Object.values(rowData).forEach(
-      (value, colIndex) => {
-        const cell = XLSX.utils.encode_cell({
-          r: row - 1,
-          c: colIndex
-        });
-
-        sheet[cell] = {
-          ...(sheet[cell] || {}),
-          v: value
-        };
-      }
-    );
-  });
-
-  const range = XLSX.utils.decode_range(
-    sheet["!ref"]
-  );
-
-  range.e.r = Math.max(
-    range.e.r,
-    startRow - 1 + data.length
-  );
-
-  sheet["!ref"] =
-    XLSX.utils.encode_range(range);
-
-  XLSX.writeFile(
-    workbook,
-    `${fileName}.xlsx`
-  );
-};
-
-const handleExportMedicines = async () => {
-  const data = medicines.map(m => ({
-    id: m.product_id,
-    nom: m.item,
-    categorie: m.designation,
-    quantite: m.quantity || 0,
-    prix: m.unitPrice || 0,
-    total: (m.quantity || 0) * (m.unitPrice || 0)
-  }));
-
-  await exportToExcel(
-    "/templates/inventaire-produits.xlsx",
-    data,
-    "inventaire_medicaments"
-  );
-};
-
-const handleExportBatches = async () => {
-  const data = batches.map(b => ({
-    idLot: b.batch_id,
-    expiration: b.expiryDate,
-    quantite: b.batch_quantity,
-    idProduit: b.product?.product_id,
-    produit: b.product?.item,
-    statut: b.archived ? "Archivé" : "Actif"
-  }));
-
-  await exportToExcel(
-    "/templates/inventaire-lots.xlsx",
-    data,
-    "lots"
-  );
-};
-
-const handleExportMovements = async () => {
-  const data = stockMovements.map(m => ({
-    id: m.id,
-    type: m.movement_type,
-    quantite: m.quantity,
-    motif: m.reason,
-    lot: m.batch?.batch_id,
-    produit: m.batch?.product?.item,
-    date: m.createdAt
-      ? new Date(m.createdAt).toLocaleString()
-      : ""
-  }));
-
-  await exportToExcel(
-    "/templates/inventaire-mouvements.xlsx",
-    data,
-    "mouvements_stock"
-  );
-};
+    if (format === 'csv') {
+      exportToCSV(data, 'mouvements_stock');
+    } else {
+      await exportWithTemplate(
+        '/templates/inventaire-mouvements.xlsx',
+        data,
+        'mouvements_stock'
+      );
+    }
+  };
   const handleLogout = () => {
     authService.logout();
     onLogout();

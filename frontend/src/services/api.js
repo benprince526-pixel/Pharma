@@ -138,6 +138,6 @@ export const userService = {
   deleteUser: (id) => {
     return apiClient.delete(`/users/${id}`);
   },
-};
-
 export default apiClient;
+
+export { exportWithTemplate, exportToCSV } from './excelService';
