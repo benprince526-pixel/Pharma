@@ -1,26 +1,30 @@
 import * as XLSX from 'xlsx';
+import { saveAs } from 'file-saver';
+import ExcelJS from 'exceljs';
 
 /**
  * Exporte des données vers un fichier Excel basé sur un modèle (template)
- * Si le modèle est inaccessible, un fichier Excel standard est généré automatiquement en repli.
+ * avec préservation de l'en-tête et insertion du logo.
  *
- * @param {string} templatePath - Chemin relatif vers le template (ex: '/templates/inventaire-produits.xlsx')
- * @param {Array<Object>} dataRows - Données à exporter (chaque objet représente une ligne)
- * @param {string} outputFileName - Nom du fichier de sortie (sans extension)
+ * @param {string} templatePath - Chemin relatif vers le template
+ * @param {Array<Object>} dataRows - Données à exporter
+ * @param {string} outputFileName - Nom du fichier de sortie
  * @param {number} sheetIndex - Index de la feuille cible (0 par défaut)
+ * @param {string} logoPath - Chemin vers le logo (ex: '/logo.png')
  */
 export const exportWithTemplate = async (
   templatePath,
   dataRows,
   outputFileName = 'export',
-  sheetIndex = 0
+  sheetIndex = 0,
+  logoPath = '/logo.png'
 ) => {
   if (!dataRows || dataRows.length === 0) {
     alert('Aucune donnée à exporter.');
     return;
   }
 
-  let workbook;
+  const workbook = new ExcelJS.Workbook();
 
   try {
     const response = await fetch(templatePath);
@@ -28,21 +32,27 @@ export const exportWithTemplate = async (
       throw new Error(`Template introuvable : ${templatePath} (${response.status})`);
     }
     const arrayBuffer = await response.arrayBuffer();
-    workbook = XLSX.read(arrayBuffer, { type: 'array' });
+    await workbook.xlsx.load(arrayBuffer);
   } catch (err) {
-    console.warn(`Impossible de charger le template "${templatePath}", repli sur un export Excel standard.`, err);
-    // Repli de secours : génère un classeur propre avec SheetJS
-    const fallbackSheet = XLSX.utils.json_to_sheet(dataRows);
-    const fallbackWb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(fallbackWb, fallbackSheet, 'Données');
-    XLSX.writeFile(fallbackWb, `${outputFileName}.xlsx`);
+    console.warn(`Impossible de charger le template "${templatePath}", repli sur export standard.`, err);
+    
+    // Repli de secours standard avec en-têtes automatiques
+    const fallbackWb = new ExcelJS.Workbook();
+    const fallbackSheet = fallbackWb.addWorksheet('Données');
+    
+    if (dataRows.length > 0) {
+      fallbackSheet.columns = Object.keys(dataRows[0]).map((key) => ({ header: key, key }));
+      fallbackSheet.addRows(dataRows);
+    }
+
+    const buffer = await fallbackWb.xlsx.writeBuffer();
+    saveAs(new Blob([buffer]), `${outputFileName}.xlsx`);
     return;
   }
 
-  const sheetName = workbook.SheetNames[sheetIndex] || workbook.SheetNames[0];
-  const sheet = workbook.Sheets[sheetName];
+  const worksheet = workbook.worksheets[sheetIndex] || workbook.worksheets[0];
 
-  // Première ligne de données (Ligne 10 dans le template Sonatrach)
+  // Ligne de début des données (Ligne 10 selon les templates Sonatrach, les lignes 1 à 9 étant réservées aux en-têtes/titres)
   const startRow = 10;
 
   dataRows.forEach((rowData, index) => {
@@ -50,33 +60,59 @@ export const exportWithTemplate = async (
     const values = Object.values(rowData);
 
     values.forEach((value, colIndex) => {
-      const cellAddress = XLSX.utils.encode_cell({
-        r: currentRow - 1,
-        c: colIndex,
-      });
+      const cell = worksheet.getCell(currentRow, colIndex + 1);
+      
+      // Dupliquer le style de la ligne modèle (ligne 10) si présent
+      const templateCell = worksheet.getCell(startRow, colIndex + 1);
+      if (templateCell && templateCell.style) {
+        cell.style = { ...templateCell.style };
+      }
 
-      const isNum = typeof value === 'number' && !isNaN(value);
-      sheet[cellAddress] = {
-        t: isNum ? 'n' : 's',
-        v: value !== null && value !== undefined ? value : '',
-      };
+      cell.value = value !== null && value !== undefined ? value : '';
     });
   });
 
-  // Mettre à jour la plage du tableau (!ref)
-  const range = XLSX.utils.decode_range(sheet['!ref'] || 'A1:G10');
-  range.e.r = Math.max(range.e.r, startRow - 1 + dataRows.length);
-  sheet['!ref'] = XLSX.utils.encode_range(range);
+  // Insertion du logo (en-tête en haut à gauche: A1)
+  if (logoPath) {
+    try {
+      const logoResponse = await fetch(logoPath);
+      if (logoResponse.ok) {
+        const logoArrayBuffer = await logoResponse.arrayBuffer();
+        const extension = logoPath.split('.').pop().toLowerCase() === 'jpg' ? 'jpeg' : 'png';
 
-  // Télécharger le classeur complété
-  XLSX.writeFile(workbook, `${outputFileName}.xlsx`);
+        const imageId = workbook.addImage({
+          buffer: logoArrayBuffer,
+          extension: extension,
+        });
+
+        // Positionnement du logo sur les cellules A1 à B4 (En-tête)
+        worksheet.addImage(imageId, {
+          tl: { col: 0, row: 0 },
+          ext: { width: 130, height: 65 },
+        });
+      }
+    } catch (imageErr) {
+      console.warn('Impossible d\'insérer le logo :', imageErr);
+    }
+  }
+
+  // Nettoyage sécurisé des noms définis orphelins (definedNames)
+  if (workbook.definedNames && Array.isArray(workbook.definedNames.model)) {
+    workbook.definedNames.model = workbook.definedNames.model.filter((nameObj) => {
+      return nameObj.localSheetId === undefined || nameObj.localSheetId === sheetIndex;
+    });
+  }
+
+  // Génération du fichier binaire et téléchargement
+  const buffer = await workbook.xlsx.writeBuffer();
+  saveAs(
+    new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
+    `${outputFileName}.xlsx`
+  );
 };
 
 /**
  * Exporte un tableau d'objets au format CSV
- *
- * @param {Array<Object>} dataRows - Données à exporter
- * @param {string} outputFileName - Nom du fichier de sortie (sans extension)
  */
 export const exportToCSV = (dataRows, outputFileName = 'export') => {
   if (!dataRows || dataRows.length === 0) {

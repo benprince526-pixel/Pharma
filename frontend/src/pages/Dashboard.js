@@ -147,11 +147,7 @@ const fetchBatches = async () => {
     if (format === 'csv') {
       exportToCSV(data, 'inventaire_medicaments');
     } else {
-      await exportWithTemplate(
-        '/templates/inventaire-produits.xlsx',
-        data,
-        'inventaire_medicaments'
-      );
+      await exportWithTemplate('/templates/inventaire-produits.xlsx', data, 'inventaire_medicaments');
     }
   };
 
@@ -730,18 +726,19 @@ const handleArchiveBatch = async (batch) => {
         (total, batch) => total + batch.batch_quantity,
         0
       );
+const totalValue = batches
+  .filter(batch => !batch.archived)
+  .reduce((sum, batch) => {
+    const productId =
+      batch.product?.product_id ||
+      batch.product?.productId;
 
-   const totalValue = batches.reduce((sum, batch) => {
-      const productId =
-        batch.product?.product_id ||
-        batch.product?.productId;
+    const product = medicines.find(
+      m => (m.product_id || m.productId) === productId
+    );
 
-      const product = medicines.find(
-        m => (m.product_id || m.productId) === productId
-      );
-
-      return sum + (batch.batch_quantity || 0) * (product?.unitPrice || 0);
-    }, 0);
+    return sum + (Number(batch.batch_quantity) || 0) * (Number(product?.unitPrice) || 0);
+  }, 0);
   console.log("MEDICINES:", medicines);
   console.log("BATCHES:", batches);
   console.log("TOTAL STOCK:", totalStock);

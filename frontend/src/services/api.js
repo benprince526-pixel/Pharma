@@ -121,23 +121,26 @@ export const stockMovementService = {
     return apiClient.delete(`/stock-movements/${id}`);
   }
 };
-
 export const userService = {
   register: (username, email, password, role) => {
     return apiClient.post('/auth/register', { username, email, password, role });
   },
+
   getAllUsers: () => {
     return apiClient.get('/users');
   },
+
   getUserById: (id) => {
     return apiClient.get(`/users/${id}`);
   },
+
   updateUser: (id, userData) => {
     return apiClient.put(`/users/${id}`, userData);
   },
+
   deleteUser: (id) => {
     return apiClient.delete(`/users/${id}`);
   },
-export default apiClient;
+};
 
-export { exportWithTemplate, exportToCSV } from './excelService';
+export default apiClient;
