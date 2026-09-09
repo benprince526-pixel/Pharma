@@ -45,6 +45,7 @@ export const exportWithTemplate = async (
         ? templatePath
         : encodeURI(templatePath);
 
+        console.log(templatePath + "||"+url)
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(
@@ -218,16 +219,21 @@ export const exportWithTemplate = async (
         // Calculer la somme JavaScript pour affichage immédiat
         const calculatedSum = dataRows.reduce((acc, row) => {
           const vals = Array.isArray(row) ? row : Object.values(row);
+
           const rawVal = vals[colNum - 1];
-          const num = typeof rawVal === 'number' ? rawVal : parseFloat(rawVal) || 0;
-          return acc + num;
+          const quantity =
+            typeof rawVal === 'number'
+              ? rawVal
+              : parseFloat(rawVal) || 0;
+
+          // Colonne Type Mouvement
+          const movementType = vals[2];
+
+          return acc + (movementType === 'OUT' ? -quantity : quantity);
         }, 0);
 
         // Formule Excel dynamique avec résultat pré-calculé
-        cell.value = {
-          formula: `SUM(${colLetter}${startRow}:${colLetter}${lastDataRow})`,
-          result: calculatedSum,
-        };
+        cell.value = calculatedSum;
 
         cell.alignment = { vertical: 'middle', horizontal: colCfg.align || 'right' };
         if (colCfg.numFmt) {
