@@ -45,6 +45,7 @@ export const exportWithTemplate = async (
         ? templatePath
         : encodeURI(templatePath);
 
+        console.log(templatePath + "||"+url)
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error(

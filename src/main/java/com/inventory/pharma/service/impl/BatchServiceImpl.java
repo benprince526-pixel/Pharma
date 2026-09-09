@@ -198,7 +198,7 @@ public class BatchServiceImpl implements IBatchService {
         batch.setBatch_quantity(quantity);
         Product product = productRepository.findById(batch.getProduct().getProduct_id())
                 .orElseThrow(()->new RuntimeException("Product associated not found"));
-        product.setQuantity(product.getQuantity() - batch.getBatch_quantity());
+        //product.setQuantity(product.getQuantity() - batch.getBatch_quantity());
         productRepository.save(product);
         return batchRepository.save(batch);
     }
