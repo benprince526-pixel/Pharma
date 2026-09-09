@@ -3,11 +3,13 @@ package com.inventory.pharma.service.impl;
 import com.inventory.pharma.model.User;
 import com.inventory.pharma.repository.UserRepository;
 import com.inventory.pharma.service.IUserService;
+import jakarta.persistence.EntityNotFoundException;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.BadCredentialsException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 
+import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
@@ -53,6 +55,38 @@ public class UserServiceImpl implements IUserService {
         return userRepository.findByEmail(email);
     }
 
+    public String resetPassword(Long userId) {
+
+            User user = userRepository.findById(userId)
+                    .orElseThrow(() ->
+                            new EntityNotFoundException("Utilisateur introuvable"));
+
+            String tempPassword = generateTemporaryPassword();
+
+            user.setPassword(
+                    passwordEncoder.encode(tempPassword)
+            );
+
+            userRepository.save(user);
+
+            return tempPassword;
+        }
+
+    private String generateTemporaryPassword() {
+
+        String chars =
+                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+
+        SecureRandom random = new SecureRandom();
+
+        StringBuilder sb = new StringBuilder();
+
+        for (int i = 0; i < 10; i++) {
+            sb.append(chars.charAt(random.nextInt(chars.length())));
+        }
+
+        return sb.toString();
+    }
     public User updateUser(Long userId, User userDetails) {
         Optional<User> user = userRepository.findById(userId);
         if (user.isPresent()) {
@@ -70,6 +104,7 @@ public class UserServiceImpl implements IUserService {
                 existingUser.setRole(userDetails.getRole());
             }
             existingUser.setUpdatedAt(LocalDateTime.now());
+            existingUser.setUsername(userDetails.getUsername());
             return userRepository.save(existingUser);
         }
         return null;

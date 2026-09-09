@@ -28,6 +28,8 @@ function Dashboard({ onLogout }) {
     username: '',
     email: '',
     role: 'PHARMACIST',
+    password: '',
+
   });
   const [changePasswordForm, setChangePasswordForm] = useState({
     currentPassword: '',
@@ -726,9 +728,14 @@ const handleArchiveBatch = async (batch) => {
   };
 
   const handleEditUser = (user) => {
-    setEditingUser(user.id);
-    setEditForm({ username: user.username, email: user.email, role: user.role });
-  };
+  setEditingUser(user.id);
+  setEditForm({
+    username: user.username,
+    email: user.email,
+    role: user.role,
+    password: ''
+  });
+};
 
   const handleEditChange = (e) => {
     const { name, value } = e.target;
@@ -736,16 +743,30 @@ const handleArchiveBatch = async (batch) => {
   };
 
   const handleUpdateUser = async (userId) => {
-    try {
-      await userService.updateUser(userId, editForm);
-      const response = await userService.getAllUsers();
-      setUsers(response.data);
-      setEditingUser(null);
-    } catch (error) {
-      console.error('Error updating user:', error);
-      alert('Erreur lors de la mise à jour de l\'utilisateur');
+  try {
+    const payload = {
+      username: editForm.username,
+      email: editForm.email,
+      role: editForm.role,
+      password: editForm.password
+    };
+
+    // send password only if user entered one
+    if (editForm.password?.trim()) {
+      payload.password = editForm.password;
     }
-  };
+
+    await userService.updateUser(userId, payload);
+
+    const response = await userService.getAllUsers();
+    setUsers(response.data);
+
+    setEditingUser(null);
+  } catch (error) {
+    console.error('Error updating user:', error);
+    alert('Erreur lors de la mise à jour de l\'utilisateur');
+  }
+};
 
   const handleDeleteUser = async (userId) => {
     if (window.confirm('Êtes-vous sûr de vouloir supprimer cet utilisateur?')) {
@@ -1027,6 +1048,16 @@ const expiredBatches = batches.filter(batch => {
                                 />
                               </td>
                               <td>
+                                <input
+                                  type="password"
+                                  name="password"
+                                  value={editForm.password || ""}
+                                  onChange={handleEditChange}
+                                  className="edit-input"
+                                  placeholder="Nouveau mot de passe"
+                                />
+                              </td>
+                              <td>
                                 <select
                                   name="role"
                                   value={editForm.role}
@@ -1038,6 +1069,7 @@ const expiredBatches = batches.filter(batch => {
                                   <option value="ADMIN">Administrateur</option>
                                 </select>
                               </td>
+                              
                               <td className="actions">
                                 <button
                                   className="action-button save-button"
@@ -1072,6 +1104,7 @@ const expiredBatches = batches.filter(batch => {
                                 >
                                   ✏️
                                 </button>
+                              
                                 <button
                                   className="action-button delete-button"
                                   onClick={() => handleDeleteUser(user.id)}

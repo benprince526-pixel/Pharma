@@ -13,4 +13,5 @@ public interface IUserService {
     Optional<User> getUserByEmail(String email);
     User updateUser(Long userId, User userDetails);
     boolean deleteUser(Long userId);
+    String resetPassword(Long userId);
 }

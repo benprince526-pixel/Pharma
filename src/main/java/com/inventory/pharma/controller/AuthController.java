@@ -35,6 +35,7 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseEntity<LoginResponseDTO> loginUser(@RequestBody User user){
+        System.out.println(bCryptPasswordEncoder.encode(user.getPassword()));
         User dbUser = userService.getUserByUsername(user.getUsername())
                 .filter(u -> bCryptPasswordEncoder.matches(user.getPassword(), u.getPassword()))
                 .orElseThrow(() -> new BadCredentialsException("Invalid username or password"));
