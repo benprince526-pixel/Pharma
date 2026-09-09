@@ -190,14 +190,15 @@ public class BatchServiceImpl implements IBatchService {
                     batch
             );
 
-            stockMovementService.createInitialStockMovement(stockMovement);
+            stockMovementService.createStockMovement(stockMovement);
         }
 
         // Le lot est ensuite marqué comme archivé
         batch.setArchived(true);
+        batch.setBatch_quantity(quantity);
         Product product = productRepository.findById(batch.getProduct().getProduct_id())
                 .orElseThrow(()->new RuntimeException("Product associated not found"));
-        product.setQuantity(product.getQuantity() - quantity);
+        product.setQuantity(product.getQuantity() - batch.getBatch_quantity());
         productRepository.save(product);
         return batchRepository.save(batch);
     }
