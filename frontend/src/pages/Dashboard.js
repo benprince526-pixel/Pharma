@@ -4,6 +4,10 @@ import { productService, authService, userService, decodeToken, batchService, st
 import '../styles/Dashboard.css';
 import { exportWithTemplate, exportToCSV } from '../services/excelService';
 
+import prodTemplate from '../templates/inventaire produits pharmaceutiques2024.xlsx';
+import lotTemplate from '../templates/inventaire lots pharmaceutiques2024.xlsx';
+import mvtTemplate from '../templates/inventaire mouvements stock pharmaceutiques2024.xlsx';
+
 function Dashboard({ onLogout }) {
   const [activeSection, setActiveSection] = useState('inventory');
   const [medicines, setMedicines] = useState([]);
@@ -135,19 +139,54 @@ const fetchBatches = async () => {
   }, [isAdmin]);
 
   const handleExportMedicines = async (format = 'excel') => {
-    const data = medicines.map((m, index) => ({
-      id: m.product_id || index + 1,
-      nom: m.item || '',
-      categorie: m.designation || '',
-      quantite: m.quantity || 0,
-      prix: m.unitPrice || 0,
-      total: (m.quantity || 0) * (m.unitPrice || 0)
-    }));
+    const data = medicines.map((m, index) => {
+      const prodId = m.product_id || m.productId || m.id;
+      const batchesForProduct = batches.filter(
+        b => !b.archived && ((b.product?.product_id || b.product?.id) === prodId)
+      );
+      const batchStock = batchesForProduct.reduce(
+        (sum, b) => sum + (Number(b.batch_quantity) || 0),
+        0
+      );
+      const quantity = (m.quantity !== null && m.quantity !== undefined && m.quantity !== 0)
+        ? Number(m.quantity)
+        : batchStock;
+
+      const unitPrice = Number(m.unitPrice) || 0;
+      const total = quantity * unitPrice;
+
+      return {
+        item: index + 1,
+        designation: m.item ? `${m.item}${m.designation ? ' (' + m.designation + ')' : ''}` : (m.designation || ''),
+        quantite: quantity,
+        prixU: unitPrice,
+        total: total
+      };
+    });
 
     if (format === 'csv') {
       exportToCSV(data, 'inventaire_medicaments');
     } else {
-      await exportWithTemplate('/templates/inventaire-produits.xlsx', data, 'inventaire_medicaments');
+      await exportWithTemplate(
+        prodTemplate || '/templates/inventaire produits pharmaceutiques2024.xlsx',
+        data,
+        'inventaire_medicaments',
+        {
+          title: `Inventaire des produits pharmaceutiques au ${new Date().toLocaleDateString('fr-FR')}`,
+          headers: ['Item', 'Designation', 'Quantité', 'Prix U', 'Total'],
+          columnWidths: [12, 42, 14, 14, 16],
+          columnAlignments: ['center', 'left', 'center', 'right', 'right'],
+          columnFormats: ['0', undefined, '#,##0', '#,##0.00', '#,##0.00'],
+          totalConfig: {
+            label: 'TOTAL GÉNÉRAL',
+            labelColEnd: 2,
+            columns: [
+              { col: 3, numFmt: '#,##0', align: 'center' },
+              { col: 5, numFmt: '#,##0.00', align: 'right' }
+            ]
+          }
+        }
+      );
     }
   };
 
@@ -164,9 +203,23 @@ const fetchBatches = async () => {
       exportToCSV(data, 'inventaire_lots');
     } else {
       await exportWithTemplate(
-        '/templates/inventaire-lots.xlsx',
+        lotTemplate || '/templates/inventaire lots pharmaceutiques2024.xlsx',
         data,
-        'lots'
+        'lots',
+        {
+          title: `Inventaire des lots pharmaceutiques au ${new Date().toLocaleDateString('fr-FR')}`,
+          headers: ['N° Lot', 'Produit', 'Quantité', 'Date Expiration', 'Statut'],
+          columnWidths: [14, 38, 14, 18, 16],
+          columnAlignments: ['center', 'left', 'center', 'center', 'center'],
+          columnFormats: ['0', undefined, '#,##0', 'yyyy-mm-dd', '@'],
+          totalConfig: {
+            label: 'TOTAL GÉNÉRAL',
+            labelColEnd: 2,
+            columns: [
+              { col: 3, numFmt: '#,##0', align: 'center' }
+            ]
+          }
+        }
       );
     }
   };
@@ -175,7 +228,7 @@ const fetchBatches = async () => {
     const data = stockMovements.map(m => ({
       id: m.id,
       date: m.createdAt ? new Date(m.createdAt).toLocaleString('fr-FR') : '',
-      type: m.movement_type,
+      type: m.movement_type || '',
       produit: m.batch?.product?.item || 'N/A',
       lot: m.batch?.batch_id || 'N/A',
       quantite: m.quantity || 0,
@@ -186,9 +239,23 @@ const fetchBatches = async () => {
       exportToCSV(data, 'mouvements_stock');
     } else {
       await exportWithTemplate(
-        '/templates/inventaire-mouvements.xlsx',
+        mvtTemplate || '/templates/inventaire mouvements stock pharmaceutiques2024.xlsx',
         data,
-        'mouvements_stock'
+        'mouvements_stock',
+        {
+          title: `Historique des mouvements de stock au ${new Date().toLocaleDateString('fr-FR')}`,
+          headers: ['N° Mouvement', 'Date & Heure', 'Type Mouvement', 'Produit', 'N° Lot', 'Quantité', 'Motif'],
+          columnWidths: [16, 22, 18, 30, 14, 14, 28],
+          columnAlignments: ['center', 'center', 'center', 'left', 'center', 'center', 'left'],
+          columnFormats: ['0', undefined, '@', undefined, '0', '#,##0', undefined],
+          totalConfig: {
+            label: 'TOTAL GÉNÉRAL',
+            labelColEnd: 5,
+            columns: [
+              { col: 6, numFmt: '#,##0', align: 'center' }
+            ]
+          }
+        }
       );
     }
   };
