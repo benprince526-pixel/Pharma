@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { authService } from '../services/api';
+import companyLogo from '../services/logo.png';
 import '../styles/LoginPage.css';
 
 function LoginPage({ onLogin }) {
@@ -42,6 +43,9 @@ function LoginPage({ onLogin }) {
       
       <div className="login-card">
         <div className="login-header">
+          <div className="login-logo-wrapper">
+            <img src={companyLogo} alt="Sonatrach Logo" className="login-company-logo" />
+          </div>
           <h1>🏥 Pharma Inventory</h1>
           <p>Sonatrach Gassi Touil</p>
         </div>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { productService, authService, userService, decodeToken, batchService, stockMovementService } from '../services/api';
+import companyLogo from '../services/logo.png';
 import '../styles/Dashboard.css';
 import { exportWithTemplate, exportToCSV } from '../services/excelService';
 
@@ -871,8 +872,15 @@ const expiredBatches = batches.filter(batch => {
     <div className="dashboard-container">
       <header className="dashboard-header">
         <div className="header-left">
-          <h1>🏥 Pharma Inventory</h1>
-          <p>Sonatrach Gassi Touil</p>
+          <div className="header-brand">
+            <div className="header-logo-badge">
+              <img src={companyLogo} alt="Sonatrach Logo" className="header-logo" />
+            </div>
+            <div className="header-brand-text">
+              <h1>🏥 Pharma Inventory</h1>
+              <p>Sonatrach Gassi Touil</p>
+            </div>
+          </div>
         </div>
         <div className="header-buttons">
           <div className="user-dropdown">

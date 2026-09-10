@@ -78,6 +78,25 @@
   margin-bottom: 40px;
 }
 
+.login-logo-wrapper {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.login-company-logo {
+  height: 68px;
+  width: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.08));
+  transition: transform 0.3s ease;
+}
+
+.login-company-logo:hover {
+  transform: scale(1.05);
+}
+
 .login-header h1 {
   font-size: 32px;
   color: #4caf50;
