@@ -32,9 +32,43 @@ public class BatchServiceImpl implements IBatchService {
     @Autowired
     private IStockMovementService stockMovementService;
 
+    public void verifyBatchProperties(Batch batch) {
+
+        if (batch == null) {
+            throw new IllegalArgumentException("Batch cannot be null");
+        }
+
+        if (batch.getProduct() == null) {
+            throw new IllegalArgumentException("A product must be associated with the batch");
+        }
+
+        if (batch.getExpiryDate() == null) {
+            throw new IllegalArgumentException("Expiry date is required");
+        }
+
+        if (batch.getBatch_quantity() == null || batch.getBatch_quantity() < 0) {
+            throw new IllegalArgumentException("Batch quantity must be greater than or equal to 0");
+        }
+
+        if(batch.getBatch_quantity() > 1_000_000L){
+            throw new IllegalArgumentException("Quantity too high");
+        }
+    }
+
+    public void verifyBatchUpdate(Batch batch) {
+
+        if (batch.getBatch_id() == null) {
+            throw new IllegalArgumentException("Product ID is required for update");
+        }
+
+        verifyBatchProperties(batch);
+    }
+
+
     @Override
     @Transactional
     public Batch createBatch(Batch batch) {
+        verifyBatchProperties(batch);
         if (batch.getProduct() == null || batch.getProduct().getProduct_id() == null) {
             throw new IllegalArgumentException("Product ID must not be null when creating a batch");
         }
@@ -82,6 +116,8 @@ public class BatchServiceImpl implements IBatchService {
     }
     @Transactional
     public Batch updateBatch(Batch batchDetails) {
+
+        verifyBatchUpdate(batchDetails);
 
         Optional<Batch> batchOptional =
                 batchRepository.findById(batchDetails.getBatch_id());

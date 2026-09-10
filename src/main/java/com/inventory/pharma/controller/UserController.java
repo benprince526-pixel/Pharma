@@ -77,22 +77,11 @@ public class UserController {
 
     @DeleteMapping("/{id}")
     @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Void> deleteUser(@PathVariable Long id) {
+    public ResponseEntity<Void> deleteUser(@PathVariable Long id) throws IllegalAccessException {
         if (userService.deleteUser(id)) {
             return new ResponseEntity<>(HttpStatus.NO_CONTENT);
         }
         return new ResponseEntity<>(HttpStatus.NOT_FOUND);
     }
 
-    @PostMapping("/{id}/reset-password")
-    @PreAuthorize("hasRole('ADMIN')")
-    public ResponseEntity<Map<String, String>> resetPassword(
-            @PathVariable Long id) {
-
-        String tempPassword = userService.resetPassword(id);
-
-        return ResponseEntity.ok(
-                Map.of("temporaryPassword", tempPassword)
-        );
-    }
 }

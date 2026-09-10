@@ -100,7 +100,7 @@ const fetchBatches = async () => {
   try {
     const response = await batchService.getAll();
 
-    console.log("BATCHES AFTER FETCH:", response.data);
+    //console.log("BATCHES AFTER FETCH:", response.data);
 
     if (response.data && Array.isArray(response.data)) {
       setBatches(response.data);
@@ -141,34 +141,44 @@ const fetchBatches = async () => {
   }, [isAdmin]);
 
   const handleExportMedicines = async (format = 'excel') => {
-    const data = medicines.map((m, index) => {
-      const prodId = m.product_id || m.productId || m.id;
-      const batchesForProduct = batches.filter(
-        b => !b.archived && ((b.product?.product_id || b.product?.id) === prodId)
-      );
-      const batchStock = batchesForProduct.reduce(
-        (sum, b) => sum + (Number(b.batch_quantity) || 0),
-        0
-      );
-      const quantity = (m.quantity !== null && m.quantity !== undefined && m.quantity !== 0)
-        ? Number(m.quantity)
-        : batchStock;
+   const data = medicines.map((m, index) => {
 
-      const unitPrice = Number(m.unitPrice) || 0;
-      const total = quantity * unitPrice;
+        const prodId = m.product_id || m.productId || m.id;
 
-      return {
-        item: index + 1,
-        designation: m.item ? `${m.item}${m.designation ? ' (' + m.designation + ')' : ''}` : (m.designation || ''),
-        quantite: quantity,
-        prixU: unitPrice,
-        total: total
-      };
-    });
+        const quantity = batches
+          .filter(
+            b =>
+              !b.archived &&
+              ((b.product?.product_id || b.product?.id) === prodId)
+          )
+          .reduce(
+            (sum, b) => sum + (Number(b.batch_quantity) || 0),
+            0
+          );
+
+        const unitPrice = Number(m.unitPrice) || 0;
+
+        return {
+          item: index + 1,
+          designation: `${m.item}${m.designation ? ` (${m.designation})` : ''}`,
+          quantite: quantity,
+          prixU: unitPrice,
+          total: quantity * unitPrice
+        };
+      });
 
     if (format === 'csv') {
       exportToCSV(data, 'inventaire_medicaments');
     } else {
+      console.log(
+        "LOTS ARCHIVES",
+        batches.filter(b => b.archived)
+      );
+
+      console.log(
+        "LOTS EXPORTES",
+        batches.filter(b => !b.archived)
+      );
       await exportWithTemplate(
         prodTemplate || '/templates/inventaire produits pharmaceutiques2024.xlsx',
         data,
@@ -193,13 +203,15 @@ const fetchBatches = async () => {
   };
 
   const handleExportBatches = async (format = 'excel') => {
-    const data = batches.map(b => ({
-      idLot: b.batch_id,
-      produit: b.product?.item || (typeof b.product === 'string' ? b.product : 'N/A'),
-      quantite: b.batch_quantity || 0,
-      expiration: b.expiryDate || '',
-      statut: b.archived ? 'Archivé' : 'Actif'
-    }));
+    const data = batches
+      .filter(b => !b.archived)
+      .map(b => ({
+        idLot: b.batch_id,
+        produit: b.product?.item || 'N/A',
+        quantite: b.batch_quantity || 0,
+        expiration: b.expiryDate || '',
+        statut: 'Actif'
+      }));
 
     if (format === 'csv') {
       exportToCSV(data, 'inventaire_lots');
@@ -827,10 +839,10 @@ const totalValue = batches
 
     return sum + (Number(batch.batch_quantity) || 0) * (Number(product?.unitPrice) || 0);
   }, 0);
-  console.log("MEDICINES:", medicines);
-  console.log("BATCHES:", batches);
-  console.log("TOTAL STOCK:", totalStock);
-  console.log("TOTAL VALUE:", totalValue);
+  // console.log("MEDICINES:", medicines);
+  // console.log("BATCHES:", batches);
+  // console.log("TOTAL STOCK:", totalStock);
+  // console.log("TOTAL VALUE:", totalValue);
 
     const activeBatches = batches.filter(batch => {
   if (batch.archived) return false;

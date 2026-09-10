@@ -1,6 +1,7 @@
 package com.inventory.pharma.service.impl;
 
 import com.inventory.pharma.model.User;
+import com.inventory.pharma.model.enumerate.Role;
 import com.inventory.pharma.repository.UserRepository;
 import com.inventory.pharma.service.IUserService;
 import jakarta.persistence.EntityNotFoundException;
@@ -12,6 +13,7 @@ import org.springframework.stereotype.Service;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 @Service
@@ -23,10 +25,20 @@ public class UserServiceImpl implements IUserService {
     @Autowired
     private PasswordEncoder passwordEncoder;
 
-    public User createUser(User user) {
-        if(user.getRole().name().isEmpty() || user.getPassword().length() <= 4 || !user.getEmail().matches(".*@.*\\..*") || user.getUsername().length() < 4){
+    public static boolean isAlphanumeric(String str) {
+        return str != null && str.matches("[a-zA-Z0-9]+") && !Character.isDigit(str.charAt(0));
+    }
+    public void verifyUserProperties(User user, boolean update){
+        if(user.getRole().name().isEmpty()
+                || (user.getPassword().length() <= 4 && !update)
+                || !user.getEmail().matches(".*@.*\\..*")
+                || (user.getUsername().length() < 4 && isAlphanumeric(user.getUsername()))){
             throw new BadCredentialsException("please fill all the required fields");
         }
+    }
+
+    public User createUser(User user) {
+        verifyUserProperties(user, false);
         if (userRepository.existsByUsername(user.getUsername())) {
             throw new IllegalArgumentException("Username already exists");
         }
@@ -55,42 +67,16 @@ public class UserServiceImpl implements IUserService {
         return userRepository.findByEmail(email);
     }
 
-    public String resetPassword(Long userId) {
-
-            User user = userRepository.findById(userId)
-                    .orElseThrow(() ->
-                            new EntityNotFoundException("Utilisateur introuvable"));
-
-            String tempPassword = generateTemporaryPassword();
-
-            user.setPassword(
-                    passwordEncoder.encode(tempPassword)
-            );
-
-            userRepository.save(user);
-
-            return tempPassword;
-        }
-
-    private String generateTemporaryPassword() {
-
-        String chars =
-                "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-
-        SecureRandom random = new SecureRandom();
-
-        StringBuilder sb = new StringBuilder();
-
-        for (int i = 0; i < 10; i++) {
-            sb.append(chars.charAt(random.nextInt(chars.length())));
-        }
-
-        return sb.toString();
-    }
     public User updateUser(Long userId, User userDetails) {
         Optional<User> user = userRepository.findById(userId);
+
+        verifyUserProperties(userDetails, true);
+
         if (user.isPresent()) {
             User existingUser = user.get();
+            if(existingUser.getRole() == Role.ADMIN && Objects.equals(existingUser.getUsername(), "admin")){
+                throw new IllegalArgumentException("This user is admin do not change its parameters !!");
+            }
             if (userDetails.getEmail() != null && !userDetails.getEmail().equals(existingUser.getEmail())) {
                 if (userRepository.existsByEmail(userDetails.getEmail())) {
                     throw new IllegalArgumentException("Email already exists");
@@ -110,8 +96,12 @@ public class UserServiceImpl implements IUserService {
         return null;
     }
 
-    public boolean deleteUser(Long userId) {
+    public boolean deleteUser(Long userId) throws IllegalAccessException {
         if (userRepository.existsById(userId)) {
+            User user = userRepository.findById(userId).get();
+            if(user.getRole() == Role.ADMIN){
+                throw new IllegalAccessException("Cannot delete an admin");
+            }
             userRepository.deleteById(userId);
             return true;
         }

@@ -1,5 +1,6 @@
 package com.inventory.pharma.service.impl;
 
+import com.inventory.pharma.config.util.ValidationUtils;
 import com.inventory.pharma.model.Batch;
 import com.inventory.pharma.model.Product;
 import com.inventory.pharma.repository.BatchRepository;
@@ -20,6 +21,48 @@ public class ProductServiceImpl implements IProductService {
     @Autowired
     private BatchRepository batchRepository;
 
+    public void verifyProductProperties(Product product) {
+
+        if (product == null) {
+            throw new IllegalArgumentException("Product cannot be null");
+        }
+
+        if (ValidationUtils.isBlank(product.getItem())) {
+            throw new IllegalArgumentException("Item is required");
+        }
+
+        if (ValidationUtils.isBlank(product.getDesignation())) {
+            throw new IllegalArgumentException("Designation is required");
+        }
+
+        if (product.getUnitPrice() == null || product.getUnitPrice() < 0) {
+            throw new IllegalArgumentException("Unit price must be greater than or equal to 0");
+        }
+
+
+        if(product.getUnitPrice() > 1_000_000L){
+            throw new IllegalArgumentException("Unit price too high");
+        }
+
+        if (product.getQuantity() == null || product.getQuantity() < 0) {
+            throw new IllegalArgumentException("Quantity must be greater than or equal to 0");
+        }
+
+        if(product.getQuantity() > 1_000_000L){
+            throw new IllegalArgumentException("Quantity too high");
+        }
+    }
+
+    public void verifyProductUpdate(Product product) {
+
+        if (product.getProduct_id() == null) {
+            throw new IllegalArgumentException("Product ID is required for update");
+        }
+
+        verifyProductProperties(product);
+    }
+
+
     public Long calculateTotalProductQuantity(Long productId) {
         List<Batch> activeBatches = batchRepository.findByProductProduct_idAndArchivedFalse(productId);
         return activeBatches.stream()
@@ -28,6 +71,7 @@ public class ProductServiceImpl implements IProductService {
     }
 
     public Product createProduct(Product product) {
+        verifyProductProperties(product);
         return productRepository.save(product);
     }
 
@@ -48,6 +92,7 @@ public class ProductServiceImpl implements IProductService {
     }
 
     public Product updateProduct(Product productDetails) {
+        verifyProductUpdate(productDetails);
         Optional<Product> product = productRepository.findById(productDetails.getProduct_id());
         if (product.isPresent()) {
             Product existingProduct = product.get();

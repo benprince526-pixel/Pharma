@@ -1,5 +1,6 @@
 package com.inventory.pharma.service.impl;
 
+import com.inventory.pharma.config.util.ValidationUtils;
 import com.inventory.pharma.model.Batch;
 import com.inventory.pharma.model.Product;
 import com.inventory.pharma.model.StockMovement;
@@ -30,6 +31,49 @@ public class StockMovementServiceImpl implements IStockMovementService {
     @Autowired
     private ProductRepository productRepository;
 
+    public void verifyStockMovementProperties(StockMovement movement) {
+
+        if (movement == null) {
+            throw new IllegalArgumentException("Movement cannot be null");
+        }
+
+        if (movement.getBatch() == null) {
+            throw new IllegalArgumentException("Batch is required");
+        }
+
+        if (movement.getMovement_type() == null) {
+            throw new IllegalArgumentException("Movement type is required");
+        }
+
+        if (movement.getQuantity() == null || movement.getQuantity() <= 0) {
+            throw new IllegalArgumentException("Quantity must be greater than 0");
+        }
+
+        if(movement.getQuantity() > 1_000_000L){
+            throw new IllegalArgumentException("Quantity too high");
+        }
+
+        if (ValidationUtils.isBlank(movement.getReason())) {
+            throw new IllegalArgumentException("Reason is required");
+        }
+
+        if (movement.getMovement_type() == MovementType.OUT
+                && movement.getQuantity() > movement.getBatch().getBatch_quantity()) {
+
+            throw new IllegalArgumentException(
+                    "Insufficient stock in the batch");
+        }
+    }
+
+    public void verifyStockMovementUpdate(StockMovement stockMovement) {
+
+        if (stockMovement.getBatch() == null) {
+            throw new IllegalArgumentException("Product ID is required for update");
+        }
+
+        verifyStockMovementProperties(stockMovement);
+    }
+
     @Override
     @Transactional
     public StockMovement createStockMovement(StockMovement movement) {
@@ -40,7 +84,9 @@ public class StockMovementServiceImpl implements IStockMovementService {
         Long batchId = movement.getBatch().getBatch_id();
         Batch batch = batchRepository.findById(batchId)
                 .orElseThrow(() -> new EntityNotFoundException("Batch not found with ID: " + batchId));
-
+        if(batch.isArchived()){
+            throw new IllegalArgumentException("Batch archived, can't do stock movement");
+        }
         Product product = batch.getProduct();
         if (product == null) {
             throw new IllegalStateException("Associated product for batch ID " + batchId + " is null");
@@ -73,13 +119,16 @@ public class StockMovementServiceImpl implements IStockMovementService {
     @Transactional
     public StockMovement createInitialStockMovement(StockMovement movement) {
 
+        verifyStockMovementProperties(movement);
         if (movement.getBatch() == null || movement.getBatch().getBatch_id() == null) {
             throw new IllegalArgumentException("Batch ID must not be null");
         }
 
         Batch batch = batchRepository.findById(movement.getBatch().getBatch_id())
                 .orElseThrow(() -> new EntityNotFoundException("Batch not found"));
-
+        if(batch.isArchived()){
+            throw new IllegalArgumentException("Batch archived, can't do stock movement");
+        }
         Product product = batch.getProduct();
 
         if (product == null) {
@@ -100,11 +149,20 @@ public class StockMovementServiceImpl implements IStockMovementService {
     @Override
     @Transactional
     public StockMovement updateStockMovement(Long id, StockMovement movementDetails) {
+        verifyStockMovementUpdate(movementDetails);
         StockMovement existingMovement = stockMovementRepository.findById(id)
                 .orElseThrow(() -> new EntityNotFoundException("Stock movement not found with ID: " + id));
 
         if (movementDetails.getBatch() == null || movementDetails.getBatch().getBatch_id() == null) {
             throw new IllegalArgumentException("Batch ID must not be null when updating a stock movement");
+        }
+
+        // 2. Fetch target Batch for updated movement
+        Long newBatchId = movementDetails.getBatch().getBatch_id();
+        Batch newBatch = batchRepository.findById(newBatchId)
+                .orElseThrow(() -> new EntityNotFoundException("Batch not found with ID: " + newBatchId));
+        if(newBatch.isArchived()){
+            throw new IllegalArgumentException("Batch archived, can't do stock movement");
         }
 
         // 1. Revert previous movement effect from old Batch & Product
@@ -122,10 +180,7 @@ public class StockMovementServiceImpl implements IStockMovementService {
         batchRepository.save(oldBatch);
         productRepository.save(oldProduct);
 
-        // 2. Fetch target Batch for updated movement
-        Long newBatchId = movementDetails.getBatch().getBatch_id();
-        Batch newBatch = batchRepository.findById(newBatchId)
-                .orElseThrow(() -> new EntityNotFoundException("Batch not found with ID: " + newBatchId));
+
         Product newProduct = newBatch.getProduct();
 
         // 3. Apply new movement effect
@@ -161,6 +216,9 @@ public class StockMovementServiceImpl implements IStockMovementService {
         if (movementOpt.isPresent()) {
             StockMovement movement = movementOpt.get();
             Batch batch = movement.getBatch();
+            if(batch.isArchived()){
+                throw new IllegalArgumentException("Batch archived, can't delete stock movement");
+            }
             Product product = batch.getProduct();
             long qty = movement.getQuantity();
 

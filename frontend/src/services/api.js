@@ -44,7 +44,7 @@ export const decodeToken = (token) => {
         .join('')
     );
     const decoded = JSON.parse(jsonPayload);
-    console.log('Decoded token:', decoded);
+    //console.log('Decoded token:', decoded);
     return decoded;
   } catch (error) {
     console.error('Error decoding token:', error);
