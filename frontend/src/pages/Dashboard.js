@@ -1073,6 +1073,30 @@ const totalValue = batches
     return new Date(batch.expiryDate) < today;
   });
 
+  // Calcul du nombre de jours restant avant expiration
+  const getDaysUntilExpiry = useCallback((expiryDate) => {
+    if (!expiryDate) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const exp = new Date(expiryDate);
+    exp.setHours(0, 0, 0, 0);
+    const diffTime = exp - today;
+    return Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  }, []);
+
+  // Lots proches de la péremption (< 90 jours / 3 mois)
+  const expiringSoonBatches = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const in90Days = new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000);
+    return batches.filter(batch => {
+      if (batch.archived) return false;
+      if (!batch.expiryDate) return false;
+      const exp = new Date(batch.expiryDate);
+      return exp >= today && exp <= in90Days;
+    }).sort((a, b) => new Date(a.expiryDate) - new Date(b.expiryDate));
+  }, [batches]);
+
   // Fonction utilitaire pour calculer la quantité réelle en stock d'un produit (somme de ses lots actifs)
   const getProductQuantity = useCallback((med) => {
     if (!med) return 0;
@@ -1153,6 +1177,15 @@ const totalValue = batches
       list = list.filter(b => !b.expiryDate);
     } else if (batchFilter === 'low_stock') {
       list = list.filter(b => (b.batch_quantity || 0) < 10);
+    } else if (batchFilter === 'expiring_soon') {
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      const in90Days = new Date(today.getTime() + 90 * 24 * 60 * 60 * 1000);
+      list = list.filter(b => {
+        if (!b.expiryDate) return false;
+        const exp = new Date(b.expiryDate);
+        return exp >= today && exp <= in90Days;
+      });
     }
 
     return genericSort(list, batchSort, (b, field) => {
@@ -1450,6 +1483,7 @@ const totalValue = batches
       if (batchFilter === 'with_expiry') filterDetails.push('Avec date');
       if (batchFilter === 'no_expiry') filterDetails.push('Sans date');
       if (batchFilter === 'low_stock') filterDetails.push('Stock faible < 10');
+      if (batchFilter === 'expiring_soon') filterDetails.push('Péremption imminente < 90j');
       if (batchSearch) filterDetails.push(`Recherche: "${batchSearch}"`);
       const filterSuffix = filterDetails.length > 0 ? ` (${filterDetails.join(' | ')})` : '';
 
@@ -1650,7 +1684,12 @@ const totalValue = batches
             className={activeSection === 'batches' ? 'nav-btn active' : 'nav-btn'}
             onClick={() => setActiveSection('batches')}
           >
-            🏷️ Lots
+            <span className="nav-btn-label">🏷️ Lots</span>
+            {expiringSoonBatches.length > 0 && (
+              <span className="sidebar-badge-warning" title={`${expiringSoonBatches.length} lot(s) à péremption imminente (< 90j)`}>
+                {expiringSoonBatches.length}
+              </span>
+            )}
           </button>
 
           <button
@@ -2098,7 +2137,79 @@ const totalValue = batches
                   </div>
                   <span className="flow-arrow">→</span>
                 </div>
+
+                <div 
+                  className={`flow-item ${expiringSoonBatches.length > 0 ? 'flow-expiring' : 'flow-ok'}`}
+                  onClick={() => { setActiveSection('batches'); setBatchFilter('expiring_soon'); }}
+                  title="Consulter les lots arrivant à expiration dans les 90 jours"
+                >
+                  <span className="flow-icon">{expiringSoonBatches.length > 0 ? '⏰' : '✅'}</span>
+                  <div className="flow-text">
+                    <span className="flow-label">Péremption &lt; 90 Jours</span>
+                    <strong className={expiringSoonBatches.length > 0 ? 'text-warn' : ''}>
+                      {expiringSoonBatches.length} lot(s) concerné(s)
+                    </strong>
+                  </div>
+                  <span className="flow-arrow">→</span>
+                </div>
               </div>
+
+              {/* Alerte Vigilance : Lots à Péremption Imminente (< 90 jours) */}
+              {expiringSoonBatches.length > 0 && (
+                <div className="expiring-alert-banner">
+                  <div className="expiring-banner-header">
+                    <div className="expiring-banner-text">
+                      <span className="expiring-banner-icon">⏰</span>
+                      <div>
+                        <h4>Vigilance Péremption : {expiringSoonBatches.length} lot(s) arrivent à échéance dans les 3 prochains mois (&lt; 90 jours)</h4>
+                        <p>Ces lots doivent être délivrés ou vérifiés en priorité selon le principe FEFO (First Expired, First Out).</p>
+                      </div>
+                    </div>
+                    <button
+                      className="expiring-view-btn"
+                      onClick={() => {
+                        setActiveSection('batches');
+                        setBatchFilter('expiring_soon');
+                      }}
+                    >
+                      Gérer ces lots ({expiringSoonBatches.length}) →
+                    </button>
+                  </div>
+
+                  <div className="expiring-lots-pills-wrap">
+                    {expiringSoonBatches.slice(0, 4).map(b => {
+                      const daysLeft = getDaysUntilExpiry(b.expiryDate);
+                      const prodName = typeof b.product === 'object'
+                        ? (b.product?.item || b.product?.designation || 'N/A')
+                        : (medicines.find(m => (m.id ?? m.product_id) === b.product)?.item || 'N/A');
+                      return (
+                        <div 
+                          key={b.batch_id} 
+                          className={`expiring-lot-card ${daysLeft <= 30 ? 'critical' : 'warning'}`}
+                          onClick={() => {
+                            setActiveSection('batches');
+                            setBatchFilter('expiring_soon');
+                          }}
+                        >
+                          <div className="lot-card-head">
+                            <span className="lot-id-tag">Lot #{b.batch_id}</span>
+                            <span className={`days-badge ${daysLeft <= 30 ? 'days-critical' : 'days-warning'}`}>
+                              {daysLeft <= 0 ? '⚠️ Périme auj.' : `⏰ dans ${daysLeft} j`}
+                            </span>
+                          </div>
+                          <div className="lot-card-prod" title={prodName}>
+                            <strong>{prodName}</strong>
+                          </div>
+                          <div className="lot-card-footer">
+                            <span>Qté : <strong>{b.batch_quantity || b.quantity || 0}</strong></span>
+                            <span>Exp : <strong>{b.expiryDate}</strong></span>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
 
               {/* ========================================================
                   SECTION 1 DES PLOTS : FLUX & SANTÉ DU STOCK
@@ -3123,6 +3234,16 @@ const totalValue = batches
                   >
                     Stock faible &lt; 10 ({activeBatches.filter((b) => (b.batch_quantity || 0) < 10).length})
                   </button>
+                  <button
+                    className={`filter-chip chip-warning ${batchFilter === 'expiring_soon' ? 'active' : ''}`}
+                    onClick={() => {
+                      setBatchFilter('expiring_soon');
+                      setBatchPage(1);
+                    }}
+                    title="Lots à péremption imminente dans les 90 prochains jours"
+                  >
+                    ⏰ Péremption &lt; 90j ({expiringSoonBatches.length})
+                  </button>
                 </div>
               </div>
 
@@ -3246,14 +3367,22 @@ const totalValue = batches
                               <>
                                 <td className="medicine-id">#{b.batch_id}</td>
                                 {(() => {
-                                  const daysUntilExpiry = rawExpiry 
-                                    ? Math.ceil((new Date(rawExpiry) - new Date()) / (1000 * 60 * 60 * 24))
-                                    : null;
+                                  const daysUntilExpiry = getDaysUntilExpiry(rawExpiry);
                                   return (
                                     <td style={{ textAlign: 'center' }}>
-                                      <span className={`quantity-badge ${daysUntilExpiry !== null && daysUntilExpiry < 30 ? 'low' : 'normal'}`}>
-                                        {rawExpiry || 'Sans date'}
-                                      </span>
+                                      <div className="expiry-cell-container">
+                                        <span className={`expiry-date-tag ${daysUntilExpiry !== null && daysUntilExpiry <= 30 ? 'critical' : daysUntilExpiry !== null && daysUntilExpiry <= 90 ? 'warning' : 'normal'}`}>
+                                          {rawExpiry || 'Sans date'}
+                                        </span>
+                                        {daysUntilExpiry !== null && daysUntilExpiry <= 90 && (
+                                          <span 
+                                            className={`expiry-countdown-pill ${daysUntilExpiry <= 30 ? 'urgent' : 'moderate'}`}
+                                            title={`Péremption imminente : expire dans ${daysUntilExpiry} jour(s)`}
+                                          >
+                                            {daysUntilExpiry <= 0 ? '⚠️ Périme auj.' : `⏰ dans ${daysUntilExpiry} j`}
+                                          </span>
+                                        )}
+                                      </div>
                                     </td>
                                   );
                                 })()}
