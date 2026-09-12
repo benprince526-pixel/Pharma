@@ -172,7 +172,7 @@ const handleSort = (sortConfig, setSortConfig, field) => {
 };
 
 function Dashboard({ onLogout }) {
-  const [activeSection, setActiveSection] = useState('inventory');
+  const [activeSection, setActiveSection] = useState('home');
   const [medicines, setMedicines] = useState([]);
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -342,140 +342,6 @@ const fetchBatches = async () => {
       fetchUsers();
     }
   }, [isAdmin]);
-
-  const handleExportMedicines = async (format = 'excel') => {
-   const data = medicines.map((m, index) => {
-
-        const prodId = m.product_id || m.productId || m.id;
-
-        const quantity = batches
-          .filter(
-            b =>
-              !b.archived &&
-              ((b.product?.product_id || b.product?.id) === prodId)
-          )
-          .reduce(
-            (sum, b) => sum + (Number(b.batch_quantity) || 0),
-            0
-          );
-
-        const unitPrice = Number(m.unitPrice) || 0;
-
-        return {
-          item: index + 1,
-          designation: `${m.item}${m.designation ? ` (${m.designation})` : ''}`,
-          quantite: quantity,
-          prixU: unitPrice,
-          total: quantity * unitPrice
-        };
-      });
-
-    if (format === 'csv') {
-      exportToCSV(data, 'inventaire_medicaments');
-    } else {
-      console.log(
-        "LOTS ARCHIVES",
-        batches.filter(b => b.archived)
-      );
-
-      console.log(
-        "LOTS EXPORTES",
-        batches.filter(b => !b.archived)
-      );
-      await exportWithTemplate(
-        prodTemplate || '/templates/inventaire produits pharmaceutiques2024.xlsx',
-        data,
-        'inventaire_medicaments',
-        {
-          title: `Inventaire des produits pharmaceutiques au ${new Date().toLocaleDateString('fr-FR')}`,
-          headers: ['Item', 'Designation', 'Quantité', 'Prix U', 'Total'],
-          columnWidths: [12, 42, 14, 14, 16],
-          columnAlignments: ['center', 'left', 'center', 'right', 'right'],
-          columnFormats: ['0', undefined, '#,##0', '#,##0.00', '#,##0.00'],
-          totalConfig: {
-            label: 'TOTAL GÉNÉRAL',
-            labelColEnd: 2,
-            columns: [
-              { col: 3, numFmt: '#,##0', align: 'center' },
-              { col: 5, numFmt: '#,##0.00', align: 'right' }
-            ]
-          }
-        }
-      );
-    }
-  };
-
-  const handleExportBatches = async (format = 'excel') => {
-    const data = batches
-      .filter(b => !b.archived)
-      .map(b => ({
-        idLot: b.batch_id,
-        produit: b.product?.item || 'N/A',
-        quantite: b.batch_quantity || 0,
-        expiration: b.expiryDate || '',
-        statut: 'Actif'
-      }));
-
-    if (format === 'csv') {
-      exportToCSV(data, 'inventaire_lots');
-    } else {
-      await exportWithTemplate(
-        lotTemplate || '/templates/inventaire lots pharmaceutiques2024.xlsx',
-        data,
-        'lots',
-        {
-          title: `Inventaire des lots pharmaceutiques au ${new Date().toLocaleDateString('fr-FR')}`,
-          headers: ['N° Lot', 'Produit', 'Quantité', 'Date Expiration', 'Statut'],
-          columnWidths: [14, 38, 14, 18, 16],
-          columnAlignments: ['center', 'left', 'center', 'center', 'center'],
-          columnFormats: ['0', undefined, '#,##0', 'yyyy-mm-dd', '@'],
-          totalConfig: {
-            label: 'TOTAL GÉNÉRAL',
-            labelColEnd: 2,
-            columns: [
-              { col: 3, numFmt: '#,##0', align: 'center' }
-            ]
-          }
-        }
-      );
-    }
-  };
-
-  const handleExportMovements = async (format = 'excel') => {
-    const data = stockMovements.map(m => ({
-      id: m.id,
-      date: m.createdAt ? new Date(m.createdAt).toLocaleString('fr-FR') : '',
-      type: m.movement_type || '',
-      produit: m.batch?.product?.item || 'N/A',
-      lot: m.batch?.batch_id || 'N/A',
-      quantite: m.quantity || 0,
-      motif: m.reason || ''
-    }));
-
-    if (format === 'csv') {
-      exportToCSV(data, 'mouvements_stock');
-    } else {
-      await exportWithTemplate(
-        mvtTemplate || '/templates/inventaire mouvements stock pharmaceutiques2024.xlsx',
-        data,
-        'mouvements_stock',
-        {
-          title: `Historique des mouvements de stock au ${new Date().toLocaleDateString('fr-FR')}`,
-          headers: ['N° Mouvement', 'Date & Heure', 'Type Mouvement', 'Produit', 'N° Lot', 'Quantité', 'Motif'],
-          columnWidths: [16, 22, 18, 30, 14, 14, 28],
-          columnAlignments: ['center', 'center', 'center', 'left', 'center', 'center', 'left'],
-          columnFormats: ['0', undefined, '@', undefined, '0', '#,##0', undefined],
-          totalConfig: {
-            label: 'TOTAL GÉNÉRAL',
-            labelColEnd: 5,
-            columns: [
-              { col: 6, numFmt: '#,##0', align: 'center' }
-            ]
-          }
-        }
-      );
-    }
-  };
 
   const handleImportFileSelect = async (e) => {
     const file = e.target.files?.[0];
@@ -1419,6 +1285,204 @@ const totalValue = batches
     return filteredUsers.slice(start, start + userPageSize);
   }, [filteredUsers, userPage, userPageSize]);
 
+  // -------------------------------------------------------------
+  // Fonctions d'Export (Excel / CSV) basées sur les filtres actifs
+  // -------------------------------------------------------------
+  const handleExportMedicines = async (format = 'excel') => {
+    const listToExport = filteredMedicines;
+    const data = listToExport.map((m, index) => {
+      const quantity = getProductQuantity(m);
+      const unitPrice = Number(m.unitPrice) || 0;
+      return {
+        item: index + 1,
+        designation: `${m.item}${m.designation ? ` (${m.designation})` : ''}`,
+        quantite: quantity,
+        prixU: unitPrice,
+        total: quantity * unitPrice
+      };
+    });
+
+    if (format === 'csv') {
+      exportToCSV(data, 'inventaire_medicaments');
+    } else {
+      let filterDetails = [];
+      if (medFilter === 'in_stock') filterDetails.push('En stock');
+      if (medFilter === 'out_of_stock') filterDetails.push('En rupture');
+      if (medSearch) filterDetails.push(`Recherche: "${medSearch}"`);
+      const filterSuffix = filterDetails.length > 0 ? ` (${filterDetails.join(' | ')})` : '';
+
+      await exportWithTemplate(
+        prodTemplate || '/templates/inventaire produits pharmaceutiques2024.xlsx',
+        data,
+        'inventaire_medicaments',
+        {
+          title: `Inventaire des produits pharmaceutiques${filterSuffix} au ${new Date().toLocaleDateString('fr-FR')}`,
+          headers: ['Item', 'Designation', 'Quantité', 'Prix U', 'Total'],
+          columnWidths: [12, 42, 14, 14, 16],
+          columnAlignments: ['center', 'left', 'center', 'right', 'right'],
+          columnFormats: ['0', undefined, '#,##0', '#,##0.00', '#,##0.00'],
+          totalConfig: {
+            label: 'TOTAL GÉNÉRAL',
+            labelColEnd: 2,
+            columns: [
+              { col: 3, numFmt: '#,##0', align: 'center' },
+              { col: 5, numFmt: '#,##0.00', align: 'right' }
+            ]
+          }
+        }
+      );
+    }
+  };
+
+  const handleExportBatches = async (format = 'excel') => {
+    const listToExport = filteredBatches;
+    const data = listToExport.map((b) => {
+      const prodName = typeof b.product === 'object'
+        ? (b.product?.item || b.product?.designation || 'N/A')
+        : (medicines.find(m => (m.id ?? m.product_id) === b.product)?.item || 'N/A');
+      return {
+        idLot: b.batch_id || b.batchId,
+        produit: prodName,
+        quantite: b.batch_quantity || 0,
+        expiration: b.expiryDate || 'Sans date',
+        statut: b.archived ? 'Archivé' : 'Actif'
+      };
+    });
+
+    if (format === 'csv') {
+      exportToCSV(data, 'inventaire_lots');
+    } else {
+      let filterDetails = [];
+      if (batchFilter === 'with_expiry') filterDetails.push('Avec date');
+      if (batchFilter === 'no_expiry') filterDetails.push('Sans date');
+      if (batchFilter === 'low_stock') filterDetails.push('Stock faible < 10');
+      if (batchSearch) filterDetails.push(`Recherche: "${batchSearch}"`);
+      const filterSuffix = filterDetails.length > 0 ? ` (${filterDetails.join(' | ')})` : '';
+
+      await exportWithTemplate(
+        lotTemplate || '/templates/inventaire lots pharmaceutiques2024.xlsx',
+        data,
+        'lots',
+        {
+          title: `Inventaire des lots pharmaceutiques${filterSuffix} au ${new Date().toLocaleDateString('fr-FR')}`,
+          headers: ['N° Lot', 'Produit', 'Quantité', 'Date Expiration', 'Statut'],
+          columnWidths: [14, 38, 14, 18, 16],
+          columnAlignments: ['center', 'left', 'center', 'center', 'center'],
+          columnFormats: ['0', undefined, '#,##0', '@', '@'],
+          totalConfig: {
+            label: 'TOTAL GÉNÉRAL',
+            labelColEnd: 2,
+            columns: [
+              { col: 3, numFmt: '#,##0', align: 'center' }
+            ]
+          }
+        }
+      );
+    }
+  };
+
+  const handleExportMovements = async (format = 'excel') => {
+    const listToExport = filteredMovements;
+    const data = listToExport.map((m) => {
+      let dateStr = '';
+      if (m.createdAt) {
+        try {
+          dateStr = new Date(m.createdAt).toLocaleString('fr-FR');
+        } catch (e) {
+          dateStr = String(m.createdAt);
+        }
+      }
+      const prodName = (typeof m.batch === 'object' && m.batch?.product?.item)
+        ? m.batch.product.item
+        : (medicines.find(med => (med.id ?? med.product_id) === (m.batch?.product?.id || m.batch?.product))?.item || 'N/A');
+      const batchId = (typeof m.batch === 'object')
+        ? (m.batch?.batch_id || m.batch?.batchId || 'N/A')
+        : (m.batch || 'N/A');
+
+      return {
+        id: m.id,
+        date: dateStr,
+        type: m.movement_type === 'IN' ? 'ENTRÉE (IN)' : m.movement_type === 'OUT' ? 'SORTIE (OUT)' : (m.movement_type || ''),
+        produit: prodName,
+        lot: batchId,
+        quantite: m.quantity || 0,
+        motif: m.reason || ''
+      };
+    });
+
+    if (format === 'csv') {
+      exportToCSV(data, 'mouvements_stock');
+    } else {
+      let filterDetails = [];
+      if (mvtDate) filterDetails.push(`Date: ${mvtDate}`);
+      if (mvtFilter === 'IN') filterDetails.push('Type: ENTRÉES');
+      if (mvtFilter === 'OUT') filterDetails.push('Type: SORTIES');
+      if (mvtSearch) filterDetails.push(`Recherche: "${mvtSearch}"`);
+      const filterSuffix = filterDetails.length > 0 ? ` (${filterDetails.join(' | ')})` : '';
+
+      await exportWithTemplate(
+        mvtTemplate || '/templates/inventaire mouvements stock pharmaceutiques2024.xlsx',
+        data,
+        'mouvements_stock',
+        {
+          title: `Historique des mouvements de stock${filterSuffix} au ${new Date().toLocaleDateString('fr-FR')}`,
+          headers: ['N° Mouvement', 'Date & Heure', 'Type Mouvement', 'Produit', 'N° Lot', 'Quantité', 'Motif'],
+          columnWidths: [16, 22, 18, 30, 14, 14, 28],
+          columnAlignments: ['center', 'center', 'center', 'left', 'center', 'center', 'left'],
+          columnFormats: ['0', undefined, '@', undefined, '0', '#,##0', undefined],
+          totalConfig: {
+            label: 'TOTAL GÉNÉRAL',
+            labelColEnd: 5,
+            columns: [
+              { col: 6, numFmt: '#,##0', align: 'center' }
+            ]
+          }
+        }
+      );
+    }
+  };
+
+  const handleExportExpiredBatches = async (format = 'excel') => {
+    const listToExport = filteredExpiredBatches;
+    const data = listToExport.map((b) => {
+      const prodName = typeof b.product === 'object'
+        ? (b.product?.item || b.product?.designation || 'N/A')
+        : (medicines.find(m => (m.id ?? m.product_id) === b.product)?.item || 'N/A');
+      return {
+        idLot: b.batch_id || b.batchId,
+        produit: prodName,
+        quantite: b.batch_quantity || 0,
+        expiration: b.expiryDate || 'N/A',
+        statut: 'Périmé'
+      };
+    });
+
+    if (format === 'csv') {
+      exportToCSV(data, 'lots_perimes');
+    } else {
+      const filterSuffix = expSearch ? ` (Recherche: "${expSearch}")` : '';
+      await exportWithTemplate(
+        lotTemplate || '/templates/inventaire lots pharmaceutiques2024.xlsx',
+        data,
+        'lots_perimes',
+        {
+          title: `Inventaire des lots périmés${filterSuffix} au ${new Date().toLocaleDateString('fr-FR')}`,
+          headers: ['N° Lot', 'Produit', 'Quantité', 'Date Expiration', 'Statut'],
+          columnWidths: [14, 38, 14, 18, 16],
+          columnAlignments: ['center', 'left', 'center', 'center', 'center'],
+          columnFormats: ['0', undefined, '#,##0', '@', '@'],
+          totalConfig: {
+            label: 'TOTAL PÉRIMÉ',
+            labelColEnd: 2,
+            columns: [
+              { col: 3, numFmt: '#,##0', align: 'center' }
+            ]
+          }
+        }
+      );
+    }
+  };
+
   if (loading) {
     return (
       <div className="dashboard-loading">
@@ -1474,14 +1538,12 @@ const totalValue = batches
 
       <div className="dashboard-layout">
         <aside className="dashboard-sidebar">
-          {isAdmin && (
-            <button
-              className={activeSection === 'users' ? 'nav-btn active' : 'nav-btn'}
-              onClick={() => setActiveSection('users')}
-            >
-              👤 Utilisateurs
-            </button>
-          )}
+          <button
+            className={activeSection === 'home' ? 'nav-btn active' : 'nav-btn'}
+            onClick={() => setActiveSection('home')}
+          >
+            🏠 Accueil
+          </button>
 
           <button
             className={activeSection === 'inventory' ? 'nav-btn active' : 'nav-btn'}
@@ -1510,6 +1572,15 @@ const totalValue = batches
           >
             📊 Mouvements
           </button>
+
+          {isAdmin && (
+            <button
+              className={activeSection === 'users' ? 'nav-btn active' : 'nav-btn'}
+              onClick={() => setActiveSection('users')}
+            >
+              👤 Utilisateurs
+            </button>
+          )}
         </aside>
 
         <main className="dashboard-main">
@@ -1517,12 +1588,14 @@ const totalValue = batches
             <section className="admin-section">
               <div className="section-header">
                 <h2>👤 Gestion des Utilisateurs</h2>
-                <button 
-                  className="add-button" 
-                  onClick={() => setShowRegisterForm(!showRegisterForm)}
-                >
-                  {showRegisterForm ? '✕ Fermer' : '+ Ajouter un utilisateur'}
-                </button>
+                <div className="header-actions">
+                  <button 
+                    className="add-button" 
+                    onClick={() => setShowRegisterForm(!showRegisterForm)}
+                  >
+                    {showRegisterForm ? '✕ Fermer' : '+ Ajouter'}
+                  </button>
+                </div>
               </div>
 
               {showRegisterForm && (
@@ -1797,31 +1870,257 @@ const totalValue = batches
             </section>
           )}
 
-          <section className="stats-section">
-            <div className="stat-card">
-              <div className="stat-icon">💊</div>
-              <div className="stat-content">
-                <h3>Médicaments</h3>
-                <p className="stat-value">{totalMedicines}</p>
+          {activeSection === 'home' && (
+            <section className="home-dashboard-section">
+              <div className="home-welcome-banner">
+                <div className="banner-content">
+                  <h2>👋 Bonjour, <span className="banner-username">{username}</span></h2>
+                  <p>Bienvenue sur le système de gestion d'inventaire pharmaceutique — Sonatrach Gassi Touil.</p>
+                </div>
+                <div className="banner-date-badge">
+                  <span className="calendar-icon">📅</span>
+                  <span>{new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                </div>
               </div>
-            </div>
 
-            <div className="stat-card">
-              <div className="stat-icon">📦</div>
-              <div className="stat-content">
-                <h3>Stock Total</h3>
-                <p className="stat-value">{totalStock}</p>
-              </div>
-            </div>
+              <div className="home-kpi-grid">
+                <div className="home-kpi-card" onClick={() => setActiveSection('inventory')}>
+                  <div className="kpi-icon-wrap kpi-blue">💊</div>
+                  <div className="kpi-info">
+                    <span className="kpi-label">Médicaments Référencés</span>
+                    <h3 className="kpi-value">{totalMedicines}</h3>
+                    <span className="kpi-subtext">Consulter le catalogue →</span>
+                  </div>
+                </div>
 
-            <div className="stat-card">
-              <div className="stat-icon">💰</div>
-              <div className="stat-content">
-                <h3>Valeur Inventaire</h3>
-                <p className="stat-value">{totalValue.toFixed(2)} DA</p>
+                <div className="home-kpi-card" onClick={() => setActiveSection('inventory')}>
+                  <div className="kpi-icon-wrap kpi-green">📦</div>
+                  <div className="kpi-info">
+                    <span className="kpi-label">Stock Physique Global</span>
+                    <h3 className="kpi-value">{totalStock}</h3>
+                    <span className="kpi-subtext">Unités en réserve</span>
+                  </div>
+                </div>
+
+                <div className="home-kpi-card" onClick={() => setActiveSection('inventory')}>
+                  <div className="kpi-icon-wrap kpi-amber">💰</div>
+                  <div className="kpi-info">
+                    <span className="kpi-label">Valeur de l'Inventaire</span>
+                    <h3 className="kpi-value">{totalValue.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DA</h3>
+                    <span className="kpi-subtext">Valorisation globale</span>
+                  </div>
+                </div>
+
+                <div className="home-kpi-card" onClick={() => { setActiveSection('movements'); setMvtFilter('IN'); }}>
+                  <div className="kpi-icon-wrap kpi-emerald">📥</div>
+                  <div className="kpi-info">
+                    <span className="kpi-label">Total Entrées (IN)</span>
+                    <h3 className="kpi-value">{stockMovements.filter(m => m.movement_type === 'IN').reduce((s, m) => s + (m.quantity || 0), 0)}</h3>
+                    <span className="kpi-subtext">Mouvements de réception</span>
+                  </div>
+                </div>
+
+                <div className="home-kpi-card" onClick={() => { setActiveSection('movements'); setMvtFilter('OUT'); }}>
+                  <div className="kpi-icon-wrap kpi-purple">📤</div>
+                  <div className="kpi-info">
+                    <span className="kpi-label">Total Sorties (OUT)</span>
+                    <h3 className="kpi-value">{stockMovements.filter(m => m.movement_type === 'OUT').reduce((s, m) => s + (m.quantity || 0), 0)}</h3>
+                    <span className="kpi-subtext">Mouvements de délivrance</span>
+                  </div>
+                </div>
+
+                <div className={`home-kpi-card ${expiredBatches.length > 0 ? 'kpi-card-danger' : ''}`} onClick={() => setActiveSection('expiredBatches')}>
+                  <div className="kpi-icon-wrap kpi-red">⏰</div>
+                  <div className="kpi-info">
+                    <span className="kpi-label">Lots Périmés</span>
+                    <h3 className="kpi-value">{expiredBatches.length}</h3>
+                    <span className="kpi-subtext">{expiredBatches.length > 0 ? '⚠️ Action requise' : 'Aucun lot périmé'}</span>
+                  </div>
+                </div>
               </div>
-            </div>
-          </section>
+
+              <div className="home-dashboard-grid">
+                <div className="home-panel recent-movements-panel">
+                  <div className="panel-header">
+                    <div className="panel-title-wrap">
+                      <h3>📊 Derniers Mouvements de Stock</h3>
+                      <span className="panel-subtitle">Les 6 opérations les plus récentes</span>
+                    </div>
+                    <button 
+                      className="panel-view-all-btn"
+                      onClick={() => setActiveSection('movements')}
+                    >
+                      Voir tous ({stockMovements.length}) →
+                    </button>
+                  </div>
+
+                  {stockMovements.length === 0 ? (
+                    <div className="empty-state-mini">
+                      <p>Aucun mouvement de stock enregistré pour le moment.</p>
+                    </div>
+                  ) : (
+                    <div className="home-table-container">
+                      <table className="home-mini-table">
+                        <thead>
+                          <tr>
+                            <th>Type</th>
+                            <th>Produit</th>
+                            <th>N° Lot</th>
+                            <th style={{ textAlign: 'center' }}>Qté</th>
+                            <th>Date</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {stockMovements.slice(0, 6).map((m) => {
+                            const prodName = (typeof m.batch === 'object' && m.batch?.product?.item)
+                              ? m.batch.product.item
+                              : (medicines.find(med => (med.id ?? med.product_id) === (m.batch?.product?.id || m.batch?.product))?.item || 'N/A');
+                            const batchId = (typeof m.batch === 'object')
+                              ? (m.batch?.batch_id || m.batch?.batchId || 'N/A')
+                              : (m.batch || 'N/A');
+                            return (
+                              <tr key={m.id}>
+                                <td>
+                                  <span className={`movement-type-badge ${m.movement_type === 'IN' ? 'type-in' : 'type-out'}`}>
+                                    {m.movement_type === 'IN' ? '📥 Entrée' : '📤 Sortie'}
+                                  </span>
+                                </td>
+                                <td className="product-name-cell" title={prodName}>
+                                  <strong>{prodName}</strong>
+                                </td>
+                                <td><span className="batch-badge">#{batchId}</span></td>
+                                <td style={{ textAlign: 'center', fontWeight: 'bold' }}>{m.quantity}</td>
+                                <td className="date-cell">
+                                  {m.createdAt ? new Date(m.createdAt).toLocaleDateString('fr-FR') : 'N/A'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+
+                <div className="home-side-col">
+                  <div className="home-panel alerts-panel">
+                    <div className="panel-header">
+                      <div className="panel-title-wrap">
+                        <h3>⚠️ Alertes de Stock</h3>
+                        <span className="panel-subtitle">Points de vigilance immédiats</span>
+                      </div>
+                    </div>
+
+                    <div className="alerts-list">
+                      {expiredBatches.length > 0 ? (
+                        <div className="alert-card alert-danger" onClick={() => setActiveSection('expiredBatches')}>
+                          <div className="alert-icon">⏰</div>
+                          <div className="alert-body">
+                            <h4>{expiredBatches.length} Lot(s) Périmé(s)</h4>
+                            <p>Des lots de médicaments ont dépassé leur date de validité.</p>
+                            <span className="alert-action-link">Consulter les lots périmés →</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="alert-card alert-success">
+                          <div className="alert-icon">✅</div>
+                          <div className="alert-body">
+                            <h4>Validité des Lots Conforme</h4>
+                            <p>Aucun lot pharmaceutique périmé détecté dans l'inventaire.</p>
+                          </div>
+                        </div>
+                      )}
+
+                      {medicines.filter(m => getProductQuantity(m) <= 0).length > 0 ? (
+                        <div className="alert-card alert-warning" onClick={() => setActiveSection('inventory')}>
+                          <div className="alert-icon">📦</div>
+                          <div className="alert-body">
+                            <h4>{medicines.filter(m => getProductQuantity(m) <= 0).length} Produit(s) en Rupture</h4>
+                            <p>Ces références ont un stock total nul ou épuisé.</p>
+                            <span className="alert-action-link">Voir l'inventaire →</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <div className="alert-card alert-success">
+                          <div className="alert-icon">✨</div>
+                          <div className="alert-body">
+                            <h4>Disponibilité Produits</h4>
+                            <p>Toutes les références disposent d'un stock actif.</p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="home-panel quick-actions-panel">
+                    <div className="panel-header">
+                      <div className="panel-title-wrap">
+                        <h3>⚡ Raccourcis Rapides</h3>
+                      </div>
+                    </div>
+
+                    <div className="quick-actions-grid">
+                      <button 
+                        className="quick-action-btn import-accent"
+                        onClick={() => {
+                          setActiveSection('inventory');
+                          setTimeout(() => fileInputRef.current && fileInputRef.current.click(), 100);
+                        }}
+                      >
+                        <span className="qa-icon">📥</span>
+                        <div className="qa-text">
+                          <strong>Importer Excel</strong>
+                          <span>Mise à jour globale</span>
+                        </div>
+                      </button>
+
+                      <button 
+                        className="quick-action-btn"
+                        onClick={() => {
+                          setActiveSection('movements');
+                          setShowAddMovementForm(true);
+                        }}
+                      >
+                        <span className="qa-icon">➕</span>
+                        <div className="qa-text">
+                          <strong>Nouveau Mouvement</strong>
+                          <span>Entrée ou sortie</span>
+                        </div>
+                      </button>
+
+                      <button 
+                        className="quick-action-btn"
+                        onClick={() => {
+                          setActiveSection('inventory');
+                          setShowAddProductForm(true);
+                        }}
+                      >
+                        <span className="qa-icon">💊</span>
+                        <div className="qa-text">
+                          <strong>Nouveau Produit</strong>
+                          <span>Ajouter au catalogue</span>
+                        </div>
+                      </button>
+
+                      <button 
+                        className="quick-action-btn"
+                        onClick={() => {
+                          setActiveSection('batches');
+                          setShowAddBatchForm(true);
+                        }}
+                      >
+                        <span className="qa-icon">🏷️</span>
+                        <div className="qa-text">
+                          <strong>Nouveau Lot</strong>
+                          <span>Enregistrer un lot</span>
+                        </div>
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
 
           {activeSection === 'inventory' && (
             <section className="medicines-section">
@@ -2252,7 +2551,6 @@ const totalValue = batches
           {activeSection === 'batches' && (
             <section className="medicines-section">
               <div className="section-header">
-                <div className="section-header">
                 <h2>📦 Lots ({batches.length})</h2>
 
                 <div className="header-actions">
@@ -2270,14 +2568,13 @@ const totalValue = batches
                     📄 CSV
                   </button>
 
+                  <button 
+                    className="add-button" 
+                    onClick={() => setShowAddBatchForm(!showAddBatchForm)}
+                  >
+                    {showAddBatchForm ? '✕ Fermer' : '+ Ajouter'}
+                  </button>
                 </div>
-              </div>
-                <button 
-                  className="add-button" 
-                  onClick={() => setShowAddBatchForm(!showAddBatchForm)}
-                >
-                  {showAddBatchForm ? '✕ Fermer' : '+ Ajouter'}
-                </button>
               </div>
 
               {showAddBatchForm && (
@@ -2589,6 +2886,20 @@ const totalValue = batches
             <section className="medicines-section">
               <div className="section-header">
                 <h2>⏰ Lots périmés ({expiredBatches.length})</h2>
+                <div className="header-actions">
+                  <button
+                    className="export-button"
+                    onClick={() => handleExportExpiredBatches('excel')}
+                  >
+                    📊 Excel
+                  </button>
+                  <button
+                    className="export-button"
+                    onClick={() => handleExportExpiredBatches('csv')}
+                  >
+                    📄 CSV
+                  </button>
+                </div>
               </div>
 
               {/* Toolbar de Recherche pour les lots périmés */}
@@ -2722,27 +3033,28 @@ const totalValue = batches
               <section className="medicines-section">
                 <div className="section-header">
                   <h2>📊 Mouvements de Stock ({stockMovements.length})</h2>
-                  <button 
-                    className="add-button" 
-                    onClick={() => setShowAddMovementForm(!showAddMovementForm)}
-                  >
-                    {showAddMovementForm ? '✕ Fermer' : '+ Ajouter'}
-                  </button>
                   <div className="header-actions">
-                      <button
-                        className="export-button"
-                        onClick={() => handleExportMovements('excel')}
-                      >
-                        📊 Excel
-                      </button>
+                    <button
+                      className="export-button"
+                      onClick={() => handleExportMovements('excel')}
+                    >
+                      📊 Excel
+                    </button>
 
-                      <button
-                        className="export-button"
-                        onClick={() => handleExportMovements('csv')}
-                      >
-                        📄 CSV
-                      </button>
-                    </div>
+                    <button
+                      className="export-button"
+                      onClick={() => handleExportMovements('csv')}
+                    >
+                      📄 CSV
+                    </button>
+
+                    <button 
+                      className="add-button" 
+                      onClick={() => setShowAddMovementForm(!showAddMovementForm)}
+                    >
+                      {showAddMovementForm ? '✕ Fermer' : '+ Ajouter'}
+                    </button>
+                  </div>
                 </div>
 
                 {showAddMovementForm && (
