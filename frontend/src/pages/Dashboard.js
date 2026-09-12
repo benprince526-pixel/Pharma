@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { productService, authService, userService, decodeToken, batchService, stockMovementService } from '../services/api';
 import companyLogo from '../services/logo.png';
@@ -1170,7 +1170,7 @@ const totalValue = batches
   });
 
   // Fonction utilitaire pour calculer la quantité réelle en stock d'un produit (somme de ses lots actifs)
-  const getProductQuantity = (med) => {
+  const getProductQuantity = useCallback((med) => {
     if (!med) return 0;
     const prodId = med.product_id || med.productId || med.id;
     const prodBatches = batches.filter(
@@ -1180,7 +1180,7 @@ const totalValue = batches
       return prodBatches.reduce((sum, b) => sum + (Number(b.batch_quantity) || 0), 0);
     }
     return Number(med.quantity) || 0;
-  };
+  }, [batches]);
 
   // -------------------------------------------------------------
   // Filtrage, Tri et Pagination pour l'Inventaire des Médicaments
@@ -1212,7 +1212,7 @@ const totalValue = batches
       }
       return item[field];
     });
-  }, [medicines, batches, medSearch, medFilter, medSort]);
+  }, [medicines, medSearch, medFilter, medSort, getProductQuantity]);
 
   const paginatedMedicines = useMemo(() => {
     const start = (medPage - 1) * medPageSize;
