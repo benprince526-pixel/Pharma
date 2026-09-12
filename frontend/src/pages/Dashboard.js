@@ -1871,253 +1871,202 @@ const totalValue = batches
           )}
 
           {activeSection === 'home' && (
-            <section className="home-dashboard-section">
-              <div className="home-welcome-banner">
-                <div className="banner-content">
-                  <h2>👋 Bonjour, <span className="banner-username">{username}</span></h2>
-                  <p>Bienvenue sur le système de gestion d'inventaire pharmaceutique — Sonatrach Gassi Touil.</p>
+            <section className="medicines-section home-view">
+              <div className="section-header">
+                <div>
+                  <h2>🏠 Tableau de Bord & Statistiques</h2>
+                  <p className="home-subtitle">
+                    Bienvenue, <strong>{username}</strong> • {new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}
+                  </p>
                 </div>
-                <div className="banner-date-badge">
-                  <span className="calendar-icon">📅</span>
-                  <span>{new Date().toLocaleDateString('fr-FR', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })}</span>
-                </div>
-              </div>
-
-              <div className="home-kpi-grid">
-                <div className="home-kpi-card" onClick={() => setActiveSection('inventory')}>
-                  <div className="kpi-icon-wrap kpi-blue">💊</div>
-                  <div className="kpi-info">
-                    <span className="kpi-label">Médicaments Référencés</span>
-                    <h3 className="kpi-value">{totalMedicines}</h3>
-                    <span className="kpi-subtext">Consulter le catalogue →</span>
-                  </div>
-                </div>
-
-                <div className="home-kpi-card" onClick={() => setActiveSection('inventory')}>
-                  <div className="kpi-icon-wrap kpi-green">📦</div>
-                  <div className="kpi-info">
-                    <span className="kpi-label">Stock Physique Global</span>
-                    <h3 className="kpi-value">{totalStock}</h3>
-                    <span className="kpi-subtext">Unités en réserve</span>
-                  </div>
-                </div>
-
-                <div className="home-kpi-card" onClick={() => setActiveSection('inventory')}>
-                  <div className="kpi-icon-wrap kpi-amber">💰</div>
-                  <div className="kpi-info">
-                    <span className="kpi-label">Valeur de l'Inventaire</span>
-                    <h3 className="kpi-value">{totalValue.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} DA</h3>
-                    <span className="kpi-subtext">Valorisation globale</span>
-                  </div>
-                </div>
-
-                <div className="home-kpi-card" onClick={() => { setActiveSection('movements'); setMvtFilter('IN'); }}>
-                  <div className="kpi-icon-wrap kpi-emerald">📥</div>
-                  <div className="kpi-info">
-                    <span className="kpi-label">Total Entrées (IN)</span>
-                    <h3 className="kpi-value">{stockMovements.filter(m => m.movement_type === 'IN').reduce((s, m) => s + (m.quantity || 0), 0)}</h3>
-                    <span className="kpi-subtext">Mouvements de réception</span>
-                  </div>
-                </div>
-
-                <div className="home-kpi-card" onClick={() => { setActiveSection('movements'); setMvtFilter('OUT'); }}>
-                  <div className="kpi-icon-wrap kpi-purple">📤</div>
-                  <div className="kpi-info">
-                    <span className="kpi-label">Total Sorties (OUT)</span>
-                    <h3 className="kpi-value">{stockMovements.filter(m => m.movement_type === 'OUT').reduce((s, m) => s + (m.quantity || 0), 0)}</h3>
-                    <span className="kpi-subtext">Mouvements de délivrance</span>
-                  </div>
-                </div>
-
-                <div className={`home-kpi-card ${expiredBatches.length > 0 ? 'kpi-card-danger' : ''}`} onClick={() => setActiveSection('expiredBatches')}>
-                  <div className="kpi-icon-wrap kpi-red">⏰</div>
-                  <div className="kpi-info">
-                    <span className="kpi-label">Lots Périmés</span>
-                    <h3 className="kpi-value">{expiredBatches.length}</h3>
-                    <span className="kpi-subtext">{expiredBatches.length > 0 ? '⚠️ Action requise' : 'Aucun lot périmé'}</span>
-                  </div>
+                <div className="header-actions">
+                  <button 
+                    className="import-button" 
+                    onClick={() => {
+                      setActiveSection('inventory');
+                      setTimeout(() => fileInputRef.current && fileInputRef.current.click(), 100);
+                    }}
+                    title="Importer l'inventaire Excel"
+                  >
+                    📥 Importer Excel
+                  </button>
+                  <button 
+                    className="add-button" 
+                    onClick={() => {
+                      setActiveSection('movements');
+                      setShowAddMovementForm(true);
+                    }}
+                    title="Enregistrer un nouveau mouvement"
+                  >
+                    + Nouveau Mouvement
+                  </button>
                 </div>
               </div>
 
-              <div className="home-dashboard-grid">
-                <div className="home-panel recent-movements-panel">
-                  <div className="panel-header">
-                    <div className="panel-title-wrap">
-                      <h3>📊 Derniers Mouvements de Stock</h3>
-                      <span className="panel-subtitle">Les 6 opérations les plus récentes</span>
-                    </div>
-                    <button 
-                      className="panel-view-all-btn"
-                      onClick={() => setActiveSection('movements')}
-                    >
-                      Voir tous ({stockMovements.length}) →
-                    </button>
-                  </div>
-
-                  {stockMovements.length === 0 ? (
-                    <div className="empty-state-mini">
-                      <p>Aucun mouvement de stock enregistré pour le moment.</p>
-                    </div>
-                  ) : (
-                    <div className="home-table-container">
-                      <table className="home-mini-table">
-                        <thead>
-                          <tr>
-                            <th>Type</th>
-                            <th>Produit</th>
-                            <th>N° Lot</th>
-                            <th style={{ textAlign: 'center' }}>Qté</th>
-                            <th>Date</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {stockMovements.slice(0, 6).map((m) => {
-                            const prodName = (typeof m.batch === 'object' && m.batch?.product?.item)
-                              ? m.batch.product.item
-                              : (medicines.find(med => (med.id ?? med.product_id) === (m.batch?.product?.id || m.batch?.product))?.item || 'N/A');
-                            const batchId = (typeof m.batch === 'object')
-                              ? (m.batch?.batch_id || m.batch?.batchId || 'N/A')
-                              : (m.batch || 'N/A');
-                            return (
-                              <tr key={m.id}>
-                                <td>
-                                  <span className={`movement-type-badge ${m.movement_type === 'IN' ? 'type-in' : 'type-out'}`}>
-                                    {m.movement_type === 'IN' ? '📥 Entrée' : '📤 Sortie'}
-                                  </span>
-                                </td>
-                                <td className="product-name-cell" title={prodName}>
-                                  <strong>{prodName}</strong>
-                                </td>
-                                <td><span className="batch-badge">#{batchId}</span></td>
-                                <td style={{ textAlign: 'center', fontWeight: 'bold' }}>{m.quantity}</td>
-                                <td className="date-cell">
-                                  {m.createdAt ? new Date(m.createdAt).toLocaleDateString('fr-FR') : 'N/A'}
-                                </td>
-                              </tr>
-                            );
-                          })}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </div>
-
-                <div className="home-side-col">
-                  <div className="home-panel alerts-panel">
-                    <div className="panel-header">
-                      <div className="panel-title-wrap">
-                        <h3>⚠️ Alertes de Stock</h3>
-                        <span className="panel-subtitle">Points de vigilance immédiats</span>
-                      </div>
-                    </div>
-
-                    <div className="alerts-list">
-                      {expiredBatches.length > 0 ? (
-                        <div className="alert-card alert-danger" onClick={() => setActiveSection('expiredBatches')}>
-                          <div className="alert-icon">⏰</div>
-                          <div className="alert-body">
-                            <h4>{expiredBatches.length} Lot(s) Périmé(s)</h4>
-                            <p>Des lots de médicaments ont dépassé leur date de validité.</p>
-                            <span className="alert-action-link">Consulter les lots périmés →</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="alert-card alert-success">
-                          <div className="alert-icon">✅</div>
-                          <div className="alert-body">
-                            <h4>Validité des Lots Conforme</h4>
-                            <p>Aucun lot pharmaceutique périmé détecté dans l'inventaire.</p>
-                          </div>
-                        </div>
-                      )}
-
-                      {medicines.filter(m => getProductQuantity(m) <= 0).length > 0 ? (
-                        <div className="alert-card alert-warning" onClick={() => setActiveSection('inventory')}>
-                          <div className="alert-icon">📦</div>
-                          <div className="alert-body">
-                            <h4>{medicines.filter(m => getProductQuantity(m) <= 0).length} Produit(s) en Rupture</h4>
-                            <p>Ces références ont un stock total nul ou épuisé.</p>
-                            <span className="alert-action-link">Voir l'inventaire →</span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="alert-card alert-success">
-                          <div className="alert-icon">✨</div>
-                          <div className="alert-body">
-                            <h4>Disponibilité Produits</h4>
-                            <p>Toutes les références disposent d'un stock actif.</p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="home-panel quick-actions-panel">
-                    <div className="panel-header">
-                      <div className="panel-title-wrap">
-                        <h3>⚡ Raccourcis Rapides</h3>
-                      </div>
-                    </div>
-
-                    <div className="quick-actions-grid">
-                      <button 
-                        className="quick-action-btn import-accent"
-                        onClick={() => {
-                          setActiveSection('inventory');
-                          setTimeout(() => fileInputRef.current && fileInputRef.current.click(), 100);
-                        }}
-                      >
-                        <span className="qa-icon">📥</span>
-                        <div className="qa-text">
-                          <strong>Importer Excel</strong>
-                          <span>Mise à jour globale</span>
-                        </div>
-                      </button>
-
-                      <button 
-                        className="quick-action-btn"
-                        onClick={() => {
-                          setActiveSection('movements');
-                          setShowAddMovementForm(true);
-                        }}
-                      >
-                        <span className="qa-icon">➕</span>
-                        <div className="qa-text">
-                          <strong>Nouveau Mouvement</strong>
-                          <span>Entrée ou sortie</span>
-                        </div>
-                      </button>
-
-                      <button 
-                        className="quick-action-btn"
-                        onClick={() => {
-                          setActiveSection('inventory');
-                          setShowAddProductForm(true);
-                        }}
-                      >
-                        <span className="qa-icon">💊</span>
-                        <div className="qa-text">
-                          <strong>Nouveau Produit</strong>
-                          <span>Ajouter au catalogue</span>
-                        </div>
-                      </button>
-
-                      <button 
-                        className="quick-action-btn"
-                        onClick={() => {
-                          setActiveSection('batches');
-                          setShowAddBatchForm(true);
-                        }}
-                      >
-                        <span className="qa-icon">🏷️</span>
-                        <div className="qa-text">
-                          <strong>Nouveau Lot</strong>
-                          <span>Enregistrer un lot</span>
-                        </div>
-                      </button>
-                    </div>
+              {/* 4 Cartes Statistiques Clés - Alignement net et clair */}
+              <div className="home-stats-grid">
+                <div 
+                  className="stat-card clickable-card" 
+                  onClick={() => setActiveSection('inventory')}
+                  title="Voir le catalogue des produits"
+                >
+                  <div className="stat-icon">💊</div>
+                  <div className="stat-content">
+                    <h3>Médicaments</h3>
+                    <p className="stat-value">{totalMedicines}</p>
+                    <span className="card-link-text">Voir le catalogue →</span>
                   </div>
                 </div>
+
+                <div 
+                  className="stat-card clickable-card" 
+                  onClick={() => setActiveSection('inventory')}
+                  title="Voir le stock disponible"
+                >
+                  <div className="stat-icon">📦</div>
+                  <div className="stat-content">
+                    <h3>Stock Global</h3>
+                    <p className="stat-value">{totalStock}</p>
+                    <span className="card-link-text">Unités en stock →</span>
+                  </div>
+                </div>
+
+                <div 
+                  className="stat-card clickable-card" 
+                  onClick={() => setActiveSection('inventory')}
+                  title="Valorisation totale de l'inventaire"
+                >
+                  <div className="stat-icon">💰</div>
+                  <div className="stat-content">
+                    <h3>Valeur Inventaire</h3>
+                    <p className="stat-value">
+                      {totalValue.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} <small style={{ fontSize: '15px' }}>DA</small>
+                    </p>
+                    <span className="card-link-text">Valorisation financière</span>
+                  </div>
+                </div>
+
+                <div 
+                  className={`stat-card clickable-card ${expiredBatches.length > 0 ? 'card-alert' : ''}`}
+                  onClick={() => setActiveSection('expiredBatches')}
+                  title="Consulter les lots périmés"
+                >
+                  <div className="stat-icon">{expiredBatches.length > 0 ? '⚠️' : '✅'}</div>
+                  <div className="stat-content">
+                    <h3>Lots Périmés</h3>
+                    <p className={`stat-value ${expiredBatches.length > 0 ? 'text-danger' : 'text-success'}`}>
+                      {expiredBatches.length}
+                    </p>
+                    <span className="card-link-text">
+                      {expiredBatches.length > 0 ? 'Action requise →' : 'Aucun lot périmé'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Barre de flux des mouvements & Alertes */}
+              <div className="home-flow-bar">
+                <div 
+                  className="flow-item flow-in"
+                  onClick={() => { setActiveSection('movements'); setMvtFilter('IN'); }}
+                  title="Voir toutes les entrées en stock"
+                >
+                  <span className="flow-icon">📥</span>
+                  <div className="flow-text">
+                    <span className="flow-label">Entrées de Stock (IN)</span>
+                    <strong>{stockMovements.filter(m => m.movement_type === 'IN').reduce((s, m) => s + (m.quantity || 0), 0)} unités</strong>
+                  </div>
+                  <span className="flow-arrow">→</span>
+                </div>
+
+                <div 
+                  className="flow-item flow-out"
+                  onClick={() => { setActiveSection('movements'); setMvtFilter('OUT'); }}
+                  title="Voir toutes les sorties de stock"
+                >
+                  <span className="flow-icon">📤</span>
+                  <div className="flow-text">
+                    <span className="flow-label">Sorties de Stock (OUT)</span>
+                    <strong>{stockMovements.filter(m => m.movement_type === 'OUT').reduce((s, m) => s + (m.quantity || 0), 0)} unités</strong>
+                  </div>
+                  <span className="flow-arrow">→</span>
+                </div>
+
+                <div 
+                  className={`flow-item ${medicines.filter(m => getProductQuantity(m) <= 0).length > 0 ? 'flow-warn' : 'flow-ok'}`}
+                  onClick={() => setActiveSection('inventory')}
+                  title="Consulter les produits en rupture de stock"
+                >
+                  <span className="flow-icon">{medicines.filter(m => getProductQuantity(m) <= 0).length > 0 ? '⚠️' : '✨'}</span>
+                  <div className="flow-text">
+                    <span className="flow-label">Ruptures de Stock</span>
+                    <strong>{medicines.filter(m => getProductQuantity(m) <= 0).length} référence(s)</strong>
+                  </div>
+                  <span className="flow-arrow">→</span>
+                </div>
+              </div>
+
+              {/* Récents Mouvements de Stock - Pleine largeur et clair */}
+              <div className="home-section-block">
+                <div className="block-header">
+                  <div className="block-title">
+                    <h3>📊 Récents Mouvements de Stock</h3>
+                    <span>Les 5 dernières opérations enregistrées</span>
+                  </div>
+                  <button 
+                    className="view-all-link-btn"
+                    onClick={() => setActiveSection('movements')}
+                  >
+                    Voir tous les mouvements ({stockMovements.length}) →
+                  </button>
+                </div>
+
+                {stockMovements.length === 0 ? (
+                  <div className="no-data">
+                    <p>Aucun mouvement de stock enregistré pour le moment.</p>
+                  </div>
+                ) : (
+                  <div className="table-responsive">
+                    <table className="medicines-table">
+                      <thead>
+                        <tr>
+                          <th style={{ width: '130px', textAlign: 'center' }}>Type</th>
+                          <th>Médicament / Produit</th>
+                          <th style={{ width: '120px', textAlign: 'center' }}>N° Lot</th>
+                          <th style={{ width: '90px', textAlign: 'center' }}>Quantité</th>
+                          <th>Motif</th>
+                          <th style={{ width: '160px', textAlign: 'center' }}>Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {stockMovements.slice(0, 5).map((m) => {
+                          const prodName = (typeof m.batch === 'object' && m.batch?.product?.item)
+                            ? m.batch.product.item
+                            : (medicines.find(med => (med.id ?? med.product_id) === (m.batch?.product?.id || m.batch?.product))?.item || 'N/A');
+                          const batchId = (typeof m.batch === 'object')
+                            ? (m.batch?.batch_id || m.batch?.batchId || 'N/A')
+                            : (m.batch || 'N/A');
+                          return (
+                            <tr key={m.id}>
+                              <td style={{ textAlign: 'center' }}>
+                                <span className={`movement-badge ${m.movement_type === 'IN' ? 'badge-in' : 'badge-out'}`}>
+                                  {m.movement_type === 'IN' ? '📥 Entrée' : '📤 Sortie'}
+                                </span>
+                              </td>
+                              <td><strong>{prodName}</strong></td>
+                              <td style={{ textAlign: 'center' }}><span className="table-badge">#{batchId}</span></td>
+                              <td style={{ textAlign: 'center', fontWeight: 'bold' }}>{m.quantity}</td>
+                              <td style={{ color: '#666' }}>{m.reason || '—'}</td>
+                              <td style={{ textAlign: 'center', color: '#666', fontSize: '12.5px' }}>
+                                {m.createdAt ? new Date(m.createdAt).toLocaleDateString('fr-FR') : 'N/A'}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </section>
           )}
