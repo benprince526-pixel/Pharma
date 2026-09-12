@@ -201,6 +201,7 @@ function Dashboard({ onLogout }) {
 
   const [mvtSearch, setMvtSearch] = useState('');
   const [mvtFilter, setMvtFilter] = useState('all'); // all, IN, OUT
+  const [mvtDate, setMvtDate] = useState(''); // YYYY-MM-DD
   const [mvtSort, setMvtSort] = useState({ field: 'id', direction: 'desc' });
   const [mvtPage, setMvtPage] = useState(1);
   const [mvtPageSize, setMvtPageSize] = useState(15);
@@ -859,9 +860,10 @@ const handleArchiveBatch = async (batch) => {
 
   const initialAddMovementState = {
     movement_type: 'IN',
+    productId: '',
+    batch: '',
     quantity: '',
-    reason: '',
-    batch: ''
+    reason: ''
   };
 
   const initialEditMovementState = {
@@ -894,7 +896,16 @@ const handleArchiveBatch = async (batch) => {
 
   const handleAddMovementChange = (e) => {
     const { name, value } = e.target;
-    setAddMovementForm({ ...addMovementForm, [name]: value });
+    setAddMovementForm((prev) => ({ ...prev, [name]: value }));
+  };
+
+  const handleMovementProductChange = (e) => {
+    const selectedProdId = e.target.value;
+    setAddMovementForm((prev) => ({
+      ...prev,
+      productId: selectedProdId,
+      batch: ''
+    }));
   };
 
   const handleAddMovementSubmit = async (e) => {
@@ -902,7 +913,17 @@ const handleArchiveBatch = async (batch) => {
     setAddMovementError('');
     setAddMovementSuccess('');
 
-    if (!addMovementForm.movement_type || !addMovementForm.quantity || !addMovementForm.reason || !addMovementForm.batch) {
+    if (!addMovementForm.productId) {
+      setAddMovementError('Veuillez d\'abord sélectionner un médicament / produit.');
+      return;
+    }
+
+    if (!addMovementForm.batch) {
+      setAddMovementError('Veuillez sélectionner un lot pour ce produit.');
+      return;
+    }
+
+    if (!addMovementForm.movement_type || !addMovementForm.quantity || !addMovementForm.reason) {
       setAddMovementError('Tous les champs sont obligatoires');
       return;
     }
@@ -918,6 +939,19 @@ const handleArchiveBatch = async (batch) => {
     if (isNaN(quantityValue) || quantityValue <= 0) {
       setAddMovementError('La quantité doit être un nombre supérieur à zéro.');
       return;
+    }
+
+    const targetBatch = batches.find(
+      (b) => String(b.batch_id || b.batchId) === String(selectedBatchId)
+    );
+    if (addMovementForm.movement_type === 'OUT' && targetBatch) {
+      const currentBatchQty = Number(targetBatch.batch_quantity) || 0;
+      if (quantityValue > currentBatchQty) {
+        setAddMovementError(
+          `Quantité insuffisante : le lot #${selectedBatchId} ne contient que ${currentBatchQty} unité(s).`
+        );
+        return;
+      }
     }
 
     try {
@@ -1329,12 +1363,32 @@ const totalValue = batches
       list = list.filter(m => m.movement_type === 'OUT');
     }
 
+    if (mvtDate) {
+      list = list.filter(m => {
+        if (!m.createdAt) return false;
+        if (typeof m.createdAt === 'string') {
+          return m.createdAt.slice(0, 10) === mvtDate;
+        }
+        if (Array.isArray(m.createdAt) && m.createdAt.length >= 3) {
+          const y = String(m.createdAt[0]);
+          const mo = String(m.createdAt[1]).padStart(2, '0');
+          const da = String(m.createdAt[2]).padStart(2, '0');
+          return `${y}-${mo}-${da}` === mvtDate;
+        }
+        try {
+          return new Date(m.createdAt).toISOString().slice(0, 10) === mvtDate;
+        } catch (e) {
+          return false;
+        }
+      });
+    }
+
     return genericSort(list, mvtSort, (m, field) => {
       if (field === 'productName') return m.batch?.product?.item || '';
       if (field === 'batchId') return m.batch?.batch_id || 0;
       return m[field];
     });
-  }, [stockMovements, mvtSearch, mvtFilter, mvtSort]);
+  }, [stockMovements, mvtSearch, mvtFilter, mvtDate, mvtSort]);
 
   const paginatedMovements = useMemo(() => {
     const start = (mvtPage - 1) * mvtPageSize;
@@ -2657,6 +2711,9 @@ const totalValue = batches
           )}
 
           {activeSection === 'movements' && (() => {
+            const selectedProductBatches = batches.filter(
+              (b) => String(b.product?.product_id || b.product?.id || b.product) === String(addMovementForm.productId)
+            );
             const currentSelectedBatch = batches.find(
               (b) => String(b.batch_id || b.batchId) === String(addMovementForm.batch)
             );
@@ -2693,34 +2750,20 @@ const totalValue = batches
                     <form onSubmit={handleAddMovementSubmit} className="add-product-form">
                       <div className="form-row">
                         <div className="form-group">
-                          <label htmlFor="movement_type">Type de mouvement</label>
+                          <label htmlFor="mvt-product">1. Médicament / Produit</label>
                           <select
-                            id="movement_type"
-                            name="movement_type"
-                            value={addMovementForm.movement_type}
-                            onChange={handleAddMovementChange}
+                            id="mvt-product"
+                            name="productId"
+                            value={addMovementForm.productId || ''}
+                            onChange={handleMovementProductChange}
                             required
                           >
-                            <option value="IN">ENTRÉE (IN)</option>
-                            <option value="OUT">SORTIE (OUT)</option>
-                          </select>
-                        </div>
-
-                        <div className="form-group">
-                          <label htmlFor="batch">Lot associé</label>
-                          <select
-                            id="batch"
-                            name="batch"
-                            value={addMovementForm.batch}
-                            onChange={handleAddMovementChange}
-                            required
-                          >
-                            <option value="">Sélectionnez un lot</option>
-                            {batches.map((b) => {
-                              const batchId = b.batch_id || b.batchId;
+                            <option value="">Sélectionnez un médicament...</option>
+                            {medicines.map((m) => {
+                              const pId = m.product_id || m.productId || m.id;
                               return (
-                                <option key={batchId} value={batchId}>
-                                  Lot #{batchId} (Exp: {b.expiryDate})
+                                <option key={pId} value={pId}>
+                                  {m.item} {m.designation ? `(${m.designation})` : ''}
                                 </option>
                               );
                             })}
@@ -2728,23 +2771,66 @@ const totalValue = batches
                         </div>
 
                         <div className="form-group">
-                          <label>Produit associé</label>
-                          <input
-                            type="text"
-                            value={currentSelectedBatch?.product?.item || ""}
-                            readOnly
-                          />
+                          <label htmlFor="batch">2. Lot associé au produit</label>
+                          <select
+                            id="batch"
+                            name="batch"
+                            value={addMovementForm.batch || ''}
+                            onChange={handleAddMovementChange}
+                            disabled={!addMovementForm.productId}
+                            required
+                          >
+                            {!addMovementForm.productId ? (
+                              <option value="">← Choisissez d'abord un produit ci-contre</option>
+                            ) : selectedProductBatches.length === 0 ? (
+                              <option value="">⚠️ Aucun lot disponible pour ce produit</option>
+                            ) : (
+                              <>
+                                <option value="">Sélectionnez un lot ({selectedProductBatches.length} disponible{selectedProductBatches.length > 1 ? 's' : ''})...</option>
+                                {selectedProductBatches.map((b) => {
+                                  const batchId = b.batch_id || b.batchId;
+                                  const exp = b.expiryDate ? `Exp: ${b.expiryDate}` : 'Sans date';
+                                  return (
+                                    <option key={batchId} value={batchId}>
+                                      Lot #{batchId} (Stock: {b.batch_quantity} | {exp})
+                                    </option>
+                                  );
+                                })}
+                              </>
+                            )}
+                          </select>
+                        </div>
+
+                        <div className="form-group">
+                          <label htmlFor="movement_type">3. Type de mouvement</label>
+                          <select
+                            id="movement_type"
+                            name="movement_type"
+                            value={addMovementForm.movement_type}
+                            onChange={handleAddMovementChange}
+                            required
+                          >
+                            <option value="IN">📥 ENTRÉE (IN)</option>
+                            <option value="OUT">📤 SORTIE (OUT)</option>
+                          </select>
                         </div>
                       </div>
 
                       <div className="form-row">
                         <div className="form-group">
-                          <label htmlFor="quantity">Quantité</label>
+                          <label htmlFor="quantity">
+                            Quantité {addMovementForm.movement_type === 'OUT' && currentSelectedBatch && (
+                              <span style={{ fontSize: '12px', color: '#c2410c', fontWeight: 'bold' }}>
+                                (Max disponible : {currentSelectedBatch.batch_quantity})
+                              </span>
+                            )}
+                          </label>
                           <input
                             id="quantity"
                             name="quantity"
                             type="number"
                             min="1"
+                            max={addMovementForm.movement_type === 'OUT' && currentSelectedBatch ? currentSelectedBatch.batch_quantity : undefined}
                             value={addMovementForm.quantity || ''}
                             onChange={handleAddMovementChange}
                             placeholder="Ex: 10"
@@ -2760,7 +2846,7 @@ const totalValue = batches
                             type="text"
                             value={addMovementForm.reason}
                             onChange={handleAddMovementChange}
-                            placeholder="Ex: Réception stock, Vente, Perte..."
+                            placeholder="Ex: Réception stock, Vente, Perte, Transfert..."
                             required
                           />
                         </div>
@@ -2804,6 +2890,33 @@ const totalValue = batches
                     )}
                   </div>
 
+                  <div className="date-filter-wrap">
+                    <span className="date-filter-icon">📅</span>
+                    <input
+                      type="date"
+                      value={mvtDate}
+                      onChange={(e) => {
+                        setMvtDate(e.target.value);
+                        setMvtPage(1);
+                      }}
+                      className="table-date-input"
+                      title="Filtrer les mouvements pour une date donnée"
+                    />
+                    {mvtDate && (
+                      <button
+                        type="button"
+                        className="clear-search-btn"
+                        onClick={() => {
+                          setMvtDate('');
+                          setMvtPage(1);
+                        }}
+                        title="Effacer le filtre de date"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
                   <div className="filter-chips-group">
                     <button
                       className={`filter-chip ${mvtFilter === 'all' ? 'active' : ''}`}
@@ -2832,6 +2945,11 @@ const totalValue = batches
                     >
                       Sorties OUT ({stockMovements.filter((m) => m.movement_type === 'OUT').length})
                     </button>
+                    {mvtDate && (
+                      <span className="active-date-badge">
+                        📅 {mvtDate} ({filteredMovements.length})
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -2841,12 +2959,17 @@ const totalValue = batches
                   </div>
                 ) : filteredMovements.length === 0 ? (
                   <div className="no-data">
-                    <p>🔍 Aucun mouvement ne correspond à votre recherche ou filtre.</p>
+                    <p>
+                      🔍 Aucun mouvement ne correspond à votre recherche ou filtre
+                      {mvtDate ? ` pour la date du ${mvtDate}` : ''}
+                      {mvtSearch ? ` ("${mvtSearch}")` : ''}.
+                    </p>
                     <button
                       className="reset-filters-btn"
                       onClick={() => {
                         setMvtSearch('');
                         setMvtFilter('all');
+                        setMvtDate('');
                         setMvtPage(1);
                       }}
                     >
@@ -2978,7 +3101,16 @@ const totalValue = batches
                                   <td>{movement.reason}</td>
                                   <td style={{ textAlign: 'center' }}>#{renderBatchId(movement.batch)}</td>
                                   <td className="medicine-name"><strong>{getProductName(movement)}</strong></td>
-                                  <td style={{ textAlign: 'center' }}>{movement.createdAt ? new Date(movement.createdAt).toLocaleDateString() : 'N/A'}</td>
+                                  <td style={{ textAlign: 'center' }}>
+                                    {movement.createdAt ? (
+                                      <div>
+                                        <strong>{new Date(movement.createdAt).toLocaleDateString('fr-FR')}</strong>
+                                        <div style={{ fontSize: '11px', color: '#64748b' }}>
+                                          {new Date(movement.createdAt).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}
+                                        </div>
+                                      </div>
+                                    ) : 'N/A'}
+                                  </td>
                                   <td className="actions">
                                     <button
                                       className="action-button edit-button"
