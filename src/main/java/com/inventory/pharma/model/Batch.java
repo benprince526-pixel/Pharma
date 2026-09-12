@@ -12,7 +12,7 @@ public class Batch {
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)
     private Long batch_id;
-    @Column(name = "expiry_date", nullable = false)
+    @Column(name = "expiry_date", nullable = true)
     private LocalDate expiryDate;
 
     @Column(name = "batch_quantity", nullable = false)
@@ -74,6 +74,14 @@ public class Batch {
     }
 
     // Getters et Setters
+    public BatchStatus getStatus() {
+        return status;
+    }
+
+    public void setStatus(BatchStatus status) {
+        this.status = status;
+    }
+
     public boolean isArchived() {
         return archived;
     }

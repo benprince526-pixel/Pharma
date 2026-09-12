@@ -42,10 +42,6 @@ public class BatchServiceImpl implements IBatchService {
             throw new IllegalArgumentException("A product must be associated with the batch");
         }
 
-        if (batch.getExpiryDate() == null) {
-            throw new IllegalArgumentException("Expiry date is required");
-        }
-
         if (batch.getBatch_quantity() == null || batch.getBatch_quantity() < 0) {
             throw new IllegalArgumentException("Batch quantity must be greater than or equal to 0");
         }

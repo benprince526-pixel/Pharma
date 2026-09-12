@@ -1,5 +1,7 @@
 package com.inventory.pharma.service;
 
+import com.inventory.pharma.dto.ProductImportItemDTO;
+import com.inventory.pharma.dto.ProductImportResultDTO;
 import com.inventory.pharma.model.Product;
 
 import java.util.List;
@@ -14,4 +16,5 @@ public interface IProductService {
     Product updateProduct(Product productDetails);
     boolean deleteProduct(Long productId);
     Long calculateTotalProductQuantity(Long productId);
+    ProductImportResultDTO importProducts(List<ProductImportItemDTO> items);
 }

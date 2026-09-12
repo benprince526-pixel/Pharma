@@ -1,5 +1,7 @@
 package com.inventory.pharma.controller;
 
+import com.inventory.pharma.dto.ProductImportItemDTO;
+import com.inventory.pharma.dto.ProductImportResultDTO;
 import com.inventory.pharma.model.Product;
 import com.inventory.pharma.service.IProductService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -65,6 +67,13 @@ public class ProductController {
             return new ResponseEntity<>(updatedProduct, HttpStatus.OK);
         }
         return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+    }
+
+    @PostMapping("/import")
+    @PreAuthorize("hasAnyRole('ADMIN', 'PHARMACIST')")
+    public ResponseEntity<ProductImportResultDTO> importProducts(@RequestBody List<ProductImportItemDTO> items) {
+        ProductImportResultDTO result = productService.importProducts(items);
+        return new ResponseEntity<>(result, HttpStatus.OK);
     }
 
     @DeleteMapping("/{id}")

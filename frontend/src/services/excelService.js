@@ -174,7 +174,6 @@ export const exportWithTemplate = async (
   const { totalConfig } = options;
   if (totalConfig && dataRows.length > 0) {
     const totalRowIndex = startRow + dataRows.length;
-    const lastDataRow = totalRowIndex - 1;
     const labelColEnd = totalConfig.labelColEnd || 2;
 
     const totalBorderStyle = {
@@ -213,7 +212,6 @@ export const exportWithTemplate = async (
     if (totalConfig.columns && Array.isArray(totalConfig.columns)) {
       totalConfig.columns.forEach((colCfg) => {
         const colNum = colCfg.col;
-        const colLetter = worksheet.getColumn(colNum).letter;
         const cell = worksheet.getCell(totalRowIndex, colNum);
 
         // Calculer la somme JavaScript pour affichage immédiat
@@ -291,3 +289,162 @@ export const exportToCSV = (dataRows, outputFileName = 'export') => {
   link.click();
   document.body.removeChild(link);
 };
+
+/**
+ * Analyse et extrait les produits d'un fichier Excel d'inventaire
+ * Compatible avec le modèle "inventaire produits pharmaceutiques2024.xlsx"
+ * Supporte la lecture multi-feuilles, détection des en-têtes et nettoyage des données.
+ *
+ * @param {File} file - Fichier Excel sélectionné
+ * @returns {Promise<{items: Array<Object>, totalCount: number, sheetNames: Array<string>}>}
+ */
+export const parseInventoryExcel = (file) => {
+  return new Promise((resolve, reject) => {
+    if (!file) {
+      return reject(new Error('Aucun fichier fourni.'));
+    }
+
+    const reader = new FileReader();
+
+    reader.onload = (e) => {
+      try {
+        const data = new Uint8Array(e.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+
+        const items = [];
+        const sheetNames = workbook.SheetNames;
+
+        sheetNames.forEach((sheetName) => {
+          const worksheet = workbook.Sheets[sheetName];
+          if (!worksheet) return;
+
+          const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1 });
+          if (!rows || rows.length === 0) return;
+
+          // 1. Trouver l'index de la ligne d'en-tête (cherche 'designation' ou 'item')
+          let headerIdx = -1;
+          for (let i = 0; i < Math.min(rows.length, 15); i++) {
+            const r = rows[i];
+            if (
+              r &&
+              Array.isArray(r) &&
+              r.some(
+                (c) =>
+                  typeof c === 'string' &&
+                  (c.toLowerCase().includes('designation') ||
+                    c.toLowerCase().includes('désignation'))
+              )
+            ) {
+              headerIdx = i;
+              break;
+            }
+          }
+
+          // Si non trouvé par désignation, chercher 'item'
+          if (headerIdx === -1) {
+            for (let i = 0; i < Math.min(rows.length, 15); i++) {
+              const r = rows[i];
+              if (
+                r &&
+                Array.isArray(r) &&
+                r.some(
+                  (c) =>
+                    typeof c === 'string' &&
+                    c.toLowerCase().trim() === 'item'
+                )
+              ) {
+                headerIdx = i;
+                break;
+              }
+            }
+          }
+
+          if (headerIdx === -1) return; // Pas une feuille d'inventaire
+
+          const headers = (rows[headerIdx] || []).map((h) =>
+            h ? String(h).trim().toLowerCase() : ''
+          );
+
+          let desigCol = headers.findIndex(
+            (h) => h.includes('designat') || h.includes('désignat')
+          );
+          let qtyCol = headers.findIndex(
+            (h) => h.includes('quantit') || h.includes('qte')
+          );
+          let priceCol = headers.findIndex(
+            (h) => h.includes('prix') || h.includes('pu')
+          );
+
+          // Valeurs par défaut si les colonnes ne sont pas détectées avec précision
+          if (desigCol === -1) desigCol = 1;
+          if (qtyCol === -1) qtyCol = 2;
+          if (priceCol === -1) priceCol = 3;
+
+          // 2. Extraire les lignes de données
+          for (let r = headerIdx + 1; r < rows.length; r++) {
+            const row = rows[r];
+            if (!row || row.length === 0) continue;
+
+            const rawDesig = row[desigCol];
+            if (!rawDesig || typeof rawDesig !== 'string') continue;
+
+            const name = rawDesig.trim();
+            if (!name) continue;
+
+            const lowerName = name.toLowerCase();
+            // Ignorer les lignes de totaux ou de signatures
+            if (
+              lowerName.startsWith('total') ||
+              lowerName.includes('chef centre') ||
+              lowerName.includes('exploitation') ||
+              lowerName.includes('direction') ||
+              lowerName.includes('division')
+            ) {
+              continue;
+            }
+
+            const rawQty = row[qtyCol];
+            const rawPrice = row[priceCol];
+
+            let quantity = 0;
+            if (rawQty !== undefined && rawQty !== null && rawQty !== '') {
+              const parsedQ = parseInt(rawQty, 10);
+              if (!isNaN(parsedQ) && parsedQ >= 0) {
+                quantity = parsedQ;
+              }
+            }
+
+            let unitPrice = 0.0;
+            if (rawPrice !== undefined && rawPrice !== null && rawPrice !== '') {
+              const parsedP = parseFloat(rawPrice);
+              if (!isNaN(parsedP) && parsedP >= 0) {
+                unitPrice = parsedP;
+              }
+            }
+
+            items.push({
+              name,
+              category: 'Pharmaceutique',
+              quantity,
+              unitPrice,
+              sheet: sheetName,
+              row: r + 1,
+            });
+          }
+        });
+
+        resolve({
+          items,
+          totalCount: items.length,
+          sheetNames,
+        });
+      } catch (err) {
+        console.error('Erreur lors de la lecture du fichier Excel:', err);
+        reject(err);
+      }
+    };
+
+    reader.onerror = (err) => reject(err);
+    reader.readAsArrayBuffer(file);
+  });
+};

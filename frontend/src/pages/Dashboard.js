@@ -1,9 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { productService, authService, userService, decodeToken, batchService, stockMovementService } from '../services/api';
 import companyLogo from '../services/logo.png';
 import '../styles/Dashboard.css';
-import { exportWithTemplate, exportToCSV } from '../services/excelService';
+import { exportWithTemplate, exportToCSV, parseInventoryExcel } from '../services/excelService';
 
 import prodTemplate from '../templates/inventaire produits pharmaceutiques2024.xlsx';
 import lotTemplate from '../templates/inventaire lots pharmaceutiques2024.xlsx';
@@ -18,6 +18,15 @@ function Dashboard({ onLogout }) {
   const [showRegisterForm, setShowRegisterForm] = useState(false);
   const [showChangePasswordForm, setShowChangePasswordForm] = useState(false);
   const [users, setUsers] = useState([]);
+
+  // États pour l'import Excel d'inventaire
+  const [showImportModal, setShowImportModal] = useState(false);
+  const [importItems, setImportItems] = useState([]);
+  const [importLoading, setImportLoading] = useState(false);
+  const [importError, setImportError] = useState('');
+  const [importSuccess, setImportSuccess] = useState('');
+  const [importFileDetails, setImportFileDetails] = useState(null);
+  const fileInputRef = useRef(null);
   const [editingUser, setEditingUser] = useState(null);
   const [registerForm, setRegisterForm] = useState({
     username: '',
@@ -273,6 +282,113 @@ const fetchBatches = async () => {
         }
       );
     }
+  };
+
+  const handleImportFileSelect = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImportLoading(true);
+    setImportError('');
+    setImportSuccess('');
+
+    try {
+      const parsed = await parseInventoryExcel(file);
+      if (!parsed.items || parsed.items.length === 0) {
+        alert('Aucun produit valide trouvé dans ce fichier Excel.');
+        setImportLoading(false);
+        return;
+      }
+
+      // Identifier les produits déjà existants dans la base
+      const existingNamesSet = new Set(
+        medicines.map(m => (m.item || '').trim().toLowerCase())
+      );
+
+      // Suivre aussi les noms apparus dans les feuilles précédentes pour marquer les doublons
+      const seenNamesInImport = new Set();
+
+      const itemsWithStatus = parsed.items.map((it, idx) => {
+        const lowerName = it.name.trim().toLowerCase();
+        const existsInDb = existingNamesSet.has(lowerName);
+        const existsInPreviousRows = seenNamesInImport.has(lowerName);
+        const isExisting = existsInDb || existsInPreviousRows;
+
+        seenNamesInImport.add(lowerName);
+
+        return {
+          ...it,
+          id: idx + 1,
+          isExisting,
+        };
+      });
+
+      setImportFileDetails({
+        fileName: file.name,
+        totalCount: parsed.totalCount,
+        sheetNames: parsed.sheetNames,
+      });
+      setImportItems(itemsWithStatus);
+      setShowImportModal(true);
+    } catch (err) {
+      console.error('Erreur importation:', err);
+      alert("Erreur lors de l'analyse du fichier Excel: " + (err.message || err));
+    } finally {
+      setImportLoading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importItems || importItems.length === 0) return;
+
+    setImportLoading(true);
+    setImportError('');
+    setImportSuccess('');
+
+    try {
+      const payload = importItems.map(item => ({
+        name: item.name,
+        category: item.category || 'Pharmaceutique',
+        quantity: item.quantity || 0,
+        unitPrice: item.unitPrice || 0,
+      }));
+
+      const res = await productService.importProducts(payload);
+      const data = res.data;
+
+      setImportSuccess(
+        `Importation réussie ! ${data.productsCreated} nouveau(x) produit(s), ${data.productsUpdated} produit(s) rattaché(s), ${data.batchesCreated} lot(s) créé(s), ${data.movementsCreated} mouvement(s) de stock initial créé(s).`
+      );
+
+      await fetchStockMovements();
+      await fetchBatches();
+      await fetchMedicines();
+
+      setTimeout(() => {
+        setShowImportModal(false);
+        setImportSuccess('');
+        setImportItems([]);
+      }, 3500);
+    } catch (err) {
+      console.error('Erreur lors de la confirmation d’importation:', err);
+      setImportError(
+        err.response?.data?.message ||
+        "Une erreur s'est produite lors de l'enregistrement de l'inventaire importé."
+      );
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const handleCloseImportModal = () => {
+    if (importLoading) return;
+    setShowImportModal(false);
+    setImportItems([]);
+    setImportError('');
+    setImportSuccess('');
   };
   const handleLogout = () => {
     authService.logout();
@@ -845,20 +961,21 @@ const totalValue = batches
   // console.log("TOTAL STOCK:", totalStock);
   // console.log("TOTAL VALUE:", totalValue);
 
-    const activeBatches = batches.filter(batch => {
-  if (batch.archived) return false;
-  if (!batch.expiryDate) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return new Date(batch.expiryDate) >= today;
-});
+  const activeBatches = batches.filter(batch => {
+    if (batch.archived) return false;
+    if (!batch.expiryDate) return true; // Lot avec date null = non périmé
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return new Date(batch.expiryDate) >= today;
+  });
 
-const expiredBatches = batches.filter(batch => {
-  if (!batch.expiryDate) return false;
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  return new Date(batch.expiryDate) < today;
-});
+  const expiredBatches = batches.filter(batch => {
+    if (batch.archived) return false;
+    if (!batch.expiryDate) return false; // Lot avec date null = non périmé
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    return new Date(batch.expiryDate) < today;
+  });
 
   if (loading) {
     return (
@@ -1177,6 +1294,22 @@ const expiredBatches = batches.filter(batch => {
 
               <div className="header-actions">
                 <button
+                  className="import-button"
+                  onClick={() => fileInputRef.current && fileInputRef.current.click()}
+                  title="Importer des produits depuis le fichier Excel d'inventaire"
+                  disabled={importLoading}
+                >
+                  {importLoading ? '⏳ Analyse...' : '📥 Importer'}
+                </button>
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  style={{ display: 'none' }}
+                  accept=".xlsx, .xls"
+                  onChange={handleImportFileSelect}
+                />
+
+                <button
                   className="export-button"
                   onClick={() => handleExportMedicines('excel')}
                 >
@@ -1198,6 +1331,110 @@ const expiredBatches = batches.filter(batch => {
                 </button>
               </div>
             </div>
+
+              {/* Modal de Prévisualisation et Confirmation d'Importation */}
+              {showImportModal && (
+                <div className="modal-overlay" onClick={handleCloseImportModal}>
+                  <div className="import-modal-content" onClick={(e) => e.stopPropagation()}>
+                    <div className="modal-header">
+                      <div className="modal-title-wrap">
+                        <h3>📥 Importation d'inventaire Excel</h3>
+                        <span className="file-name-badge">📄 {importFileDetails?.fileName}</span>
+                      </div>
+                      <button className="close-modal-btn" onClick={handleCloseImportModal} disabled={importLoading}>
+                        ✕
+                      </button>
+                    </div>
+
+                    <div className="import-stats-summary">
+                      <div className="import-stat-item">
+                        <span className="import-stat-label">Lignes détectées</span>
+                        <span className="import-stat-num">{importItems.length}</span>
+                      </div>
+                      <div className="import-stat-item new-item">
+                        <span className="import-stat-label">Nouveaux produits</span>
+                        <span className="import-stat-num">{importItems.filter(i => !i.isExisting).length}</span>
+                      </div>
+                      <div className="import-stat-item exist-item">
+                        <span className="import-stat-label">Produits existants (lot rattaché)</span>
+                        <span className="import-stat-num">{importItems.filter(i => i.isExisting).length}</span>
+                      </div>
+                      <div className="import-stat-item stock-item">
+                        <span className="import-stat-label">Lots avec stock (&gt; 0)</span>
+                        <span className="import-stat-num">{importItems.filter(i => i.quantity > 0).length}</span>
+                      </div>
+                    </div>
+
+                    <div className="import-info-note">
+                      💡 <strong>Règles d'importation appliquées :</strong>
+                      <ul>
+                        <li>Les produits portant le même nom exact ne sont pas dupliqués : un lot leur est directement rattaché.</li>
+                        <li>Les lots sont créés sans date d'expiration (valeur <code>null</code>) et considérés comme <strong>non périmés</strong>.</li>
+                        <li>Un mouvement de stock d'entrée (IN) est automatiquement généré pour chaque lot ayant une quantité &gt; 0.</li>
+                      </ul>
+                    </div>
+
+                    {importError && <div className="error-message">{importError}</div>}
+                    {importSuccess && <div className="success-message">{importSuccess}</div>}
+
+                    <div className="import-preview-table-container">
+                      <table className="import-preview-table">
+                        <thead>
+                          <tr>
+                            <th>#</th>
+                            <th>Feuille</th>
+                            <th>Désignation / Nom</th>
+                            <th>Quantité</th>
+                            <th>Prix U (DA)</th>
+                            <th>Statut</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {importItems.map((item, idx) => (
+                            <tr key={idx} className={item.isExisting ? 'row-existing' : 'row-new'}>
+                              <td>{idx + 1}</td>
+                              <td><span className="sheet-badge">{item.sheet}</span></td>
+                              <td className="item-name-cell"><strong>{item.name}</strong></td>
+                              <td>
+                                <span className={`quantity-badge ${item.quantity > 0 ? 'normal' : 'low'}`}>
+                                  {item.quantity}
+                                </span>
+                              </td>
+                              <td>{item.unitPrice ? `${Number(item.unitPrice).toFixed(2)} DA` : '0.00 DA'}</td>
+                              <td>
+                                {item.isExisting ? (
+                                  <span className="status-badge status-existing">Produit existant (lot rattaché)</span>
+                                ) : (
+                                  <span className="status-badge status-new">Nouveau produit</span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="modal-footer">
+                      <button
+                        type="button"
+                        className="btn-cancel"
+                        onClick={handleCloseImportModal}
+                        disabled={importLoading}
+                      >
+                        Annuler
+                      </button>
+                      <button
+                        type="button"
+                        className="btn-confirm-import"
+                        onClick={handleConfirmImport}
+                        disabled={importLoading || importItems.length === 0}
+                      >
+                        {importLoading ? '⏳ Importation en cours...' : `✓ Valider et importer (${importItems.length} éléments)`}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {showAddProductForm && (
                 <div className="add-product-form-container">
@@ -1593,11 +1830,11 @@ const expiredBatches = batches.filter(batch => {
                                 {(() => {
                                   const daysUntilExpiry = rawExpiry 
                                     ? Math.ceil((new Date(rawExpiry) - new Date()) / (1000 * 60 * 60 * 24))
-                                    : 0;
+                                    : null;
                                   return (
                                     <td>
-                                      <span className={`quantity-badge ${daysUntilExpiry < 30 ? 'low' : 'normal'}`}>
-                                        {rawExpiry || 'N/A'}
+                                      <span className={`quantity-badge ${daysUntilExpiry !== null && daysUntilExpiry < 30 ? 'low' : 'normal'}`}>
+                                        {rawExpiry || 'Sans date'}
                                       </span>
                                     </td>
                                   );

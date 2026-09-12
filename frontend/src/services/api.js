@@ -77,6 +77,9 @@ export const productService = {
   delete: (id) => {
     return apiClient.delete(`/products/${id}`);
   },
+  importProducts: (items) => {
+    return apiClient.post('/products/import', items);
+  },
 };
 export const batchService = {
   getAll: () => {
