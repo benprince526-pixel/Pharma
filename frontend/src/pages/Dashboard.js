@@ -161,6 +161,16 @@ const genericSort = (list, sortConfig, getValue) => {
   });
 };
 
+// Gestionnaire d'inversion ou changement de colonne de tri
+const handleSort = (sortConfig, setSortConfig, field) => {
+  setSortConfig((prev) => {
+    if (prev.field === field) {
+      return { field, direction: prev.direction === 'asc' ? 'desc' : 'asc' };
+    }
+    return { field, direction: 'asc' };
+  });
+};
+
 function Dashboard({ onLogout }) {
   const [activeSection, setActiveSection] = useState('inventory');
   const [medicines, setMedicines] = useState([]);
@@ -196,6 +206,8 @@ function Dashboard({ onLogout }) {
   const [mvtPageSize, setMvtPageSize] = useState(15);
 
   const [userSearch, setUserSearch] = useState('');
+  const [userFilter, setUserFilter] = useState('all'); // all, ADMIN, PHARMACIST, STOCK_MANAGER
+  const [userSort, setUserSort] = useState({ field: 'username', direction: 'asc' });
   const [userPage, setUserPage] = useState(1);
   const [userPageSize, setUserPageSize] = useState(10);
 
@@ -1326,8 +1338,11 @@ const totalValue = batches
         (u.role && u.role.toLowerCase().includes(q))
       );
     }
-    return list;
-  }, [users, userSearch]);
+    if (userFilter !== 'all') {
+      list = list.filter(u => u.role === userFilter);
+    }
+    return genericSort(list, userSort);
+  }, [users, userSearch, userFilter, userSort]);
 
   const paginatedUsers = useMemo(() => {
     const start = (userPage - 1) * userPageSize;
