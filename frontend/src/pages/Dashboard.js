@@ -1169,6 +1169,19 @@ const totalValue = batches
     return new Date(batch.expiryDate) < today;
   });
 
+  // Fonction utilitaire pour calculer la quantité réelle en stock d'un produit (somme de ses lots actifs)
+  const getProductQuantity = (med) => {
+    if (!med) return 0;
+    const prodId = med.product_id || med.productId || med.id;
+    const prodBatches = batches.filter(
+      b => !b.archived && ((b.product?.product_id || b.product?.id || b.product) === prodId)
+    );
+    if (prodBatches.length > 0) {
+      return prodBatches.reduce((sum, b) => sum + (Number(b.batch_quantity) || 0), 0);
+    }
+    return Number(med.quantity) || 0;
+  };
+
   // -------------------------------------------------------------
   // Filtrage, Tri et Pagination pour l'Inventaire des Médicaments
   // -------------------------------------------------------------
@@ -1185,18 +1198,21 @@ const totalValue = batches
     }
 
     if (medFilter === 'in_stock') {
-      list = list.filter(m => (m.quantity || 0) > 0);
+      list = list.filter(m => getProductQuantity(m) > 0);
     } else if (medFilter === 'out_of_stock') {
-      list = list.filter(m => (m.quantity || 0) <= 0);
+      list = list.filter(m => getProductQuantity(m) <= 0);
     }
 
     return genericSort(list, medSort, (item, field) => {
+      if (field === 'quantity') {
+        return getProductQuantity(item);
+      }
       if (field === 'total') {
-        return (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+        return getProductQuantity(item) * (Number(item.unitPrice) || 0);
       }
       return item[field];
     });
-  }, [medicines, medSearch, medFilter, medSort]);
+  }, [medicines, batches, medSearch, medFilter, medSort]);
 
   const paginatedMedicines = useMemo(() => {
     const start = (medPage - 1) * medPageSize;
@@ -2003,7 +2019,7 @@ const totalValue = batches
                       setMedPage(1);
                     }}
                   >
-                    En stock ({medicines.filter((m) => (m.quantity || 0) > 0).length})
+                    En stock ({medicines.filter((m) => getProductQuantity(m) > 0).length})
                   </button>
                   <button
                     className={`filter-chip ${medFilter === 'out_of_stock' ? 'active' : ''}`}
@@ -2012,7 +2028,7 @@ const totalValue = batches
                       setMedPage(1);
                     }}
                   >
-                    Rupture ({medicines.filter((m) => (m.quantity || 0) <= 0).length})
+                    Rupture ({medicines.filter((m) => getProductQuantity(m) <= 0).length})
                   </button>
                 </div>
               </div>
@@ -2052,7 +2068,7 @@ const totalValue = batches
                     <tbody>
                       {paginatedMedicines.map((medicine) => {
                         const isEditing = editingProductId === medicine.product_id;
-                        const quantity = isEditing ? (parseFloat(editProductForm.quantity) || 0) : (medicine.quantity || 0);
+                        const quantity = isEditing ? (parseFloat(editProductForm.quantity) || 0) : getProductQuantity(medicine);
                         const unitPrice = isEditing ? (parseFloat(editProductForm.unitPrice) || 0) : (medicine.unitPrice || 0);
 
                         return (

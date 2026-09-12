@@ -93,7 +93,18 @@ public class ProductServiceImpl implements IProductService {
     }
 
     public List<Product> getAllProducts() {
-        return productRepository.findAll();
+        List<Product> products = productRepository.findAll();
+        for (Product product : products) {
+            List<Batch> activeBatches = batchRepository.findByProductProduct_idAndArchivedFalse(product.getProduct_id());
+            if (!activeBatches.isEmpty()) {
+                long totalBatchQty = activeBatches.stream().mapToLong(Batch::getBatch_quantity).sum();
+                if (!Long.valueOf(totalBatchQty).equals(product.getQuantity())) {
+                    product.setQuantity(totalBatchQty);
+                    productRepository.save(product);
+                }
+            }
+        }
+        return products;
     }
 
     public List<Product> getProductsByItem(String item) {
@@ -214,12 +225,12 @@ public class ProductServiceImpl implements IProductService {
                         LocalDateTime.now(),
                         savedBatch
                 );
-                stockMovementService.createInitialStockMovement(stockMovement);
+                StockMovement savedMovement = stockMovementService.createInitialStockMovement(stockMovement);
                 movementsCreated++;
 
-                // Mettre à jour l'instance produit en mémoire avec sa nouvelle quantité totale
-                product.setQuantity(product.getQuantity() + quantity);
-                productMap.put(lookupKey, product);
+                // createInitialStockMovement incrémente déjà la quantité du produit
+                Product updatedProduct = savedMovement.getBatch().getProduct();
+                productMap.put(lookupKey, updatedProduct != null ? updatedProduct : product);
             }
 
             totalProcessed++;
