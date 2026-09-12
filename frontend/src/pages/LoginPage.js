@@ -27,7 +27,7 @@ function LoginPage({ onLogin }) {
         setError('Réponse invalide du serveur');
       }
     } catch (err) {
-      setError('username ou mot de passe incorrect');
+      setError('Nom d\'utilisateur ou mot de passe incorrect');
     } finally {
       setLoading(false);
     }
@@ -52,12 +52,12 @@ function LoginPage({ onLogin }) {
 
         <form onSubmit={handleSubmit} className="login-form">
           <div className="form-group">
-            <label htmlFor="email">Email</label>
+            <label htmlFor="username">Nom d'utilisateur</label>
             <input
               id="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
-              placeholder="Entrez votre username"
+              placeholder="Entrez votre nom d'utilisateur"
               required
               disabled={loading}
             />

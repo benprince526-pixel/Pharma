@@ -99,7 +99,7 @@ public class UserServiceImpl implements IUserService {
     public boolean deleteUser(Long userId) throws IllegalAccessException {
         if (userRepository.existsById(userId)) {
             User user = userRepository.findById(userId).get();
-            if(user.getRole() == Role.ADMIN){
+            if(user.getRole() == Role.ADMIN && Objects.equals(user.getUsername(), "admin")){
                 throw new IllegalAccessException("Cannot delete an admin");
             }
             userRepository.deleteById(userId);
