@@ -212,6 +212,10 @@ function Dashboard({ onLogout }) {
   const [userPage, setUserPage] = useState(1);
   const [userPageSize, setUserPageSize] = useState(10);
 
+  // États pour les graphiques interactifs (plots)
+  const [hoveredBar, setHoveredBar] = useState(null);
+  const [hoveredDonut, setHoveredDonut] = useState(null);
+
   // États pour l'import Excel d'inventaire
   const [showImportModal, setShowImportModal] = useState(false);
   const [importItems, setImportItems] = useState([]);
@@ -1286,6 +1290,96 @@ const totalValue = batches
   }, [filteredUsers, userPage, userPageSize]);
 
   // -------------------------------------------------------------
+  // Données et Agrégations pour les Graphiques (Plots) de l'Accueil
+  // -------------------------------------------------------------
+  const medicineHealthData = useMemo(() => {
+    const total = medicines.length;
+    if (total === 0) return { inStock: 0, lowStock: 0, outOfStock: 0, total: 0 };
+    let inStock = 0;
+    let lowStock = 0;
+    let outOfStock = 0;
+    medicines.forEach(m => {
+      const q = getProductQuantity(m);
+      if (q <= 0) outOfStock++;
+      else if (q <= 10) lowStock++;
+      else inStock++;
+    });
+    return { inStock, lowStock, outOfStock, total };
+  }, [medicines, getProductQuantity]);
+
+  const batchHealthData = useMemo(() => {
+    const total = batches.length;
+    if (total === 0) return { valid: 0, noExpiry: 0, expired: 0, total: 0 };
+    const expired = batches.filter(b => b.expiryDate && new Date(b.expiryDate) < new Date()).length;
+    const noExpiry = batches.filter(b => !b.expiryDate).length;
+    const valid = Math.max(0, total - expired - noExpiry);
+    return { valid, noExpiry, expired, total };
+  }, [batches]);
+
+  const topMedicinesByStock = useMemo(() => {
+    return [...medicines]
+      .map(m => {
+        const qty = getProductQuantity(m);
+        const unitPrice = Number(m.unitPrice) || 0;
+        return {
+          id: m.id ?? m.product_id,
+          name: m.item,
+          designation: m.designation,
+          qty,
+          unitPrice,
+          totalValue: qty * unitPrice
+        };
+      })
+      .sort((a, b) => b.qty - a.qty)
+      .slice(0, 5);
+  }, [medicines, getProductQuantity]);
+
+  const movementTimelineData = useMemo(() => {
+    const map = {};
+    stockMovements.forEach(m => {
+      let dStr = '';
+      if (m.createdAt) {
+        if (typeof m.createdAt === 'string') {
+          dStr = m.createdAt.slice(0, 10);
+        } else if (Array.isArray(m.createdAt) && m.createdAt.length >= 3) {
+          const y = String(m.createdAt[0]);
+          const mo = String(m.createdAt[1]).padStart(2, '0');
+          const da = String(m.createdAt[2]).padStart(2, '0');
+          dStr = `${y}-${mo}-${da}`;
+        } else {
+          try {
+            dStr = new Date(m.createdAt).toISOString().slice(0, 10);
+          } catch(e) {
+            dStr = '';
+          }
+        }
+      }
+      if (!dStr) return;
+      if (!map[dStr]) map[dStr] = { inQty: 0, outQty: 0, totalCount: 0 };
+      if (m.movement_type === 'IN') {
+        map[dStr].inQty += (m.quantity || 0);
+      } else if (m.movement_type === 'OUT') {
+        map[dStr].outQty += (m.quantity || 0);
+      }
+      map[dStr].totalCount++;
+    });
+
+    const sortedDates = Object.keys(map).sort();
+    const recentDates = sortedDates.slice(-7);
+    return recentDates.map(date => {
+      const parts = date.split('-');
+      const formattedDate = parts.length === 3 ? `${parts[2]}/${parts[1]}` : date;
+      return {
+        date,
+        formattedDate,
+        inQty: map[date].inQty,
+        outQty: map[date].outQty,
+        count: map[date].totalCount
+      };
+    });
+  }, [stockMovements]);
+
+  // -------------------------------------------------------------
   // Fonctions d'Export (Excel / CSV) basées sur les filtres actifs
   // -------------------------------------------------------------
   const handleExportMedicines = async (format = 'excel') => {
@@ -2003,6 +2097,382 @@ const totalValue = batches
                     <strong>{medicines.filter(m => getProductQuantity(m) <= 0).length} référence(s)</strong>
                   </div>
                   <span className="flow-arrow">→</span>
+                </div>
+              </div>
+
+              {/* ========================================================
+                  SECTION 1 DES PLOTS : FLUX & SANTÉ DU STOCK
+                  ======================================================== */}
+              <div className="home-charts-row">
+                {/* Plot 1 : Histogramme des Mouvements (Entrées vs Sorties) */}
+                <div className="chart-card">
+                  <div className="chart-header">
+                    <div>
+                      <h3 className="chart-title">📊 Flux des Mouvements Récents</h3>
+                      <p className="chart-subtitle">Volumes d'entrées (IN) et de sorties (OUT) par date</p>
+                    </div>
+                    <div className="chart-legend">
+                      <span className="legend-item"><span className="legend-dot dot-in"></span> Entrées (IN)</span>
+                      <span className="legend-item"><span className="legend-dot dot-out"></span> Sorties (OUT)</span>
+                    </div>
+                  </div>
+
+                  <div className="chart-body">
+                    {movementTimelineData.length === 0 ? (
+                      <div className="chart-empty">
+                        <p>Aucun mouvement enregistré pour générer l'histogramme.</p>
+                      </div>
+                    ) : (() => {
+                      const maxQty = Math.max(10, ...movementTimelineData.map(d => Math.max(d.inQty, d.outQty))) * 1.15;
+                      const chartH = 140;
+                      const basePlotY = 175;
+                      const plotW = 440;
+                      const bandW = plotW / movementTimelineData.length;
+                      const barW = Math.min(20, bandW * 0.36);
+
+                      return (
+                        <div className="svg-chart-wrap">
+                          <svg viewBox="0 0 520 215" className="svg-chart">
+                            {/* Gridlines horizontales */}
+                            {[0, 0.33, 0.66, 1].map((ratio, idx) => {
+                              const y = basePlotY - ratio * chartH;
+                              const val = Math.round(ratio * maxQty);
+                              return (
+                                <g key={idx}>
+                                  <line x1="45" y1={y} x2="495" y2={y} stroke="#f1f5f9" strokeDasharray="4 4" />
+                                  <text x="38" y={y + 4} textAnchor="end" className="chart-axis-label">{val}</text>
+                                </g>
+                              );
+                            })}
+
+                            {/* Barres par date */}
+                            {movementTimelineData.map((d, i) => {
+                              const cx = 50 + i * bandW + bandW / 2;
+                              const hIn = (d.inQty / maxQty) * chartH;
+                              const hOut = (d.outQty / maxQty) * chartH;
+                              const yIn = basePlotY - hIn;
+                              const yOut = basePlotY - hOut;
+                              const isHovered = hoveredBar?.date === d.date;
+
+                              return (
+                                <g key={d.date} className="bar-group">
+                                  {/* Barre IN */}
+                                  <rect
+                                    x={cx - barW - 2}
+                                    y={yIn}
+                                    width={barW}
+                                    height={Math.max(3, hIn)}
+                                    rx="3"
+                                    fill="#10b981"
+                                    className="chart-bar"
+                                    opacity={isHovered ? 1 : 0.88}
+                                    onMouseEnter={() => setHoveredBar({ ...d, type: 'IN' })}
+                                    onMouseLeave={() => setHoveredBar(null)}
+                                  />
+                                  {/* Barre OUT */}
+                                  <rect
+                                    x={cx + 2}
+                                    y={yOut}
+                                    width={barW}
+                                    height={Math.max(3, hOut)}
+                                    rx="3"
+                                    fill="#8b5cf6"
+                                    className="chart-bar"
+                                    opacity={isHovered ? 1 : 0.88}
+                                    onMouseEnter={() => setHoveredBar({ ...d, type: 'OUT' })}
+                                    onMouseLeave={() => setHoveredBar(null)}
+                                  />
+                                  {/* Label date */}
+                                  <text x={cx} y="196" textAnchor="middle" className="chart-x-label">
+                                    {d.formattedDate}
+                                  </text>
+                                </g>
+                              );
+                            })}
+                          </svg>
+
+                          {/* Tooltip interactif */}
+                          {hoveredBar && (
+                            <div className="chart-tooltip">
+                              <div className="tooltip-date">📅 {hoveredBar.date}</div>
+                              <div className="tooltip-row">
+                                <span className="legend-dot dot-in"></span> Entrées : <strong>{hoveredBar.inQty} unités</strong>
+                              </div>
+                              <div className="tooltip-row">
+                                <span className="legend-dot dot-out"></span> Sorties : <strong>{hoveredBar.outQty} unités</strong>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+
+                {/* Plot 2 : Donut de Disponibilité des Médicaments */}
+                <div className="chart-card">
+                  <div className="chart-header">
+                    <div>
+                      <h3 className="chart-title">🍩 Disponibilité du Stock</h3>
+                      <p className="chart-subtitle">Répartition des {medicineHealthData.total} produits du catalogue</p>
+                    </div>
+                  </div>
+
+                  <div className="donut-chart-container">
+                    {medicineHealthData.total === 0 ? (
+                      <div className="chart-empty">
+                        <p>Aucun produit dans le catalogue.</p>
+                      </div>
+                    ) : (() => {
+                      const C = 408.41;
+                      const { inStock, lowStock, outOfStock, total } = medicineHealthData;
+                      const lenIn = (inStock / total) * C;
+                      const lenLow = (lowStock / total) * C;
+                      const lenOut = (outOfStock / total) * C;
+                      const offsetIn = 0;
+                      const offsetLow = -lenIn;
+                      const offsetOut = -(lenIn + lenLow);
+
+                      const activeInfo = hoveredDonut || {
+                        val: total,
+                        lbl: 'Total Produits',
+                        pct: 100
+                      };
+
+                      return (
+                        <div className="donut-flex-wrap">
+                          <div className="donut-svg-wrap">
+                            <svg viewBox="0 0 200 200" className="donut-svg">
+                              <circle cx="100" cy="100" r="65" fill="none" stroke="#f1f5f9" strokeWidth="22" />
+
+                              {inStock > 0 && (
+                                <circle
+                                  cx="100" cy="100" r="65" fill="none"
+                                  stroke="#10b981" strokeWidth="22"
+                                  strokeDasharray={`${lenIn} ${C - lenIn}`}
+                                  strokeDashoffset={offsetIn}
+                                  transform="rotate(-90 100 100)"
+                                  className="donut-segment"
+                                  onMouseEnter={() => setHoveredDonut({ val: inStock, lbl: 'En stock', pct: Math.round(inStock / total * 100) })}
+                                  onMouseLeave={() => setHoveredDonut(null)}
+                                />
+                              )}
+
+                              {lowStock > 0 && (
+                                <circle
+                                  cx="100" cy="100" r="65" fill="none"
+                                  stroke="#f59e0b" strokeWidth="22"
+                                  strokeDasharray={`${lenLow} ${C - lenLow}`}
+                                  strokeDashoffset={offsetLow}
+                                  transform="rotate(-90 100 100)"
+                                  className="donut-segment"
+                                  onMouseEnter={() => setHoveredDonut({ val: lowStock, lbl: 'Stock faible', pct: Math.round(lowStock / total * 100) })}
+                                  onMouseLeave={() => setHoveredDonut(null)}
+                                />
+                              )}
+
+                              {outOfStock > 0 && (
+                                <circle
+                                  cx="100" cy="100" r="65" fill="none"
+                                  stroke="#ef4444" strokeWidth="22"
+                                  strokeDasharray={`${lenOut} ${C - lenOut}`}
+                                  strokeDashoffset={offsetOut}
+                                  transform="rotate(-90 100 100)"
+                                  className="donut-segment"
+                                  onMouseEnter={() => setHoveredDonut({ val: outOfStock, lbl: 'En rupture', pct: Math.round(outOfStock / total * 100) })}
+                                  onMouseLeave={() => setHoveredDonut(null)}
+                                />
+                              )}
+
+                              <text x="100" y="96" textAnchor="middle" className="donut-center-val">
+                                {activeInfo.val}
+                              </text>
+                              <text x="100" y="117" textAnchor="middle" className="donut-center-sub">
+                                {activeInfo.lbl}
+                              </text>
+                            </svg>
+                          </div>
+
+                          <div className="donut-legend-list">
+                            <div 
+                              className="donut-legend-row"
+                              onMouseEnter={() => setHoveredDonut({ val: inStock, lbl: 'En stock', pct: Math.round(inStock / total * 100) })}
+                              onMouseLeave={() => setHoveredDonut(null)}
+                            >
+                              <div className="legend-indicator">
+                                <span className="donut-dot dot-normal"></span>
+                                <div>
+                                  <strong>En stock normal</strong>
+                                  <span className="sub-desc">&gt; 10 unités</span>
+                                </div>
+                              </div>
+                              <span className="legend-qty">{inStock} <small>({Math.round((inStock / total) * 100)}%)</small></span>
+                            </div>
+
+                            <div 
+                              className="donut-legend-row"
+                              onMouseEnter={() => setHoveredDonut({ val: lowStock, lbl: 'Stock faible', pct: Math.round(lowStock / total * 100) })}
+                              onMouseLeave={() => setHoveredDonut(null)}
+                            >
+                              <div className="legend-indicator">
+                                <span className="donut-dot dot-low"></span>
+                                <div>
+                                  <strong>Stock faible</strong>
+                                  <span className="sub-desc">1 à 10 unités</span>
+                                </div>
+                              </div>
+                              <span className="legend-qty text-warn">{lowStock} <small>({Math.round((lowStock / total) * 100)}%)</small></span>
+                            </div>
+
+                            <div 
+                              className="donut-legend-row"
+                              onMouseEnter={() => setHoveredDonut({ val: outOfStock, lbl: 'En rupture', pct: Math.round(outOfStock / total * 100) })}
+                              onMouseLeave={() => setHoveredDonut(null)}
+                            >
+                              <div className="legend-indicator">
+                                <span className="donut-dot dot-rupture"></span>
+                                <div>
+                                  <strong>Rupture de stock</strong>
+                                  <span className="sub-desc">0 unité</span>
+                                </div>
+                              </div>
+                              <span className="legend-qty text-danger">{outOfStock} <small>({Math.round((outOfStock / total) * 100)}%)</small></span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </div>
+              </div>
+
+              {/* ========================================================
+                  SECTION 2 DES PLOTS : CLASSEMENTS ET CONTRÔLE QUALITÉ LOTS
+                  ======================================================== */}
+              <div className="home-charts-row">
+                {/* Plot 3 : Top 5 Médicaments en Réserve */}
+                <div className="chart-card">
+                  <div className="chart-header">
+                    <div>
+                      <h3 className="chart-title">🏆 Top 5 des Médicaments en Stock</h3>
+                      <p className="chart-subtitle">Les références ayant le plus grand volume physique disponible</p>
+                    </div>
+                  </div>
+
+                  <div className="top-products-list">
+                    {topMedicinesByStock.length === 0 ? (
+                      <div className="chart-empty">
+                        <p>Aucun produit enregistré.</p>
+                      </div>
+                    ) : (() => {
+                      const maxStockProd = Math.max(1, ...topMedicinesByStock.map(p => p.qty));
+                      return topMedicinesByStock.map((p, idx) => {
+                        const pct = Math.round((p.qty / maxStockProd) * 100);
+                        return (
+                          <div key={p.id || idx} className="top-product-item">
+                            <div className="top-product-header">
+                              <div className="top-product-meta">
+                                <span className={`rank-badge rank-${idx + 1}`}>#{idx + 1}</span>
+                                <span className="top-product-name" title={p.name}>
+                                  {p.name}
+                                </span>
+                              </div>
+                              <div className="top-product-values">
+                                <span className="top-product-qty">{p.qty} unités</span>
+                                {p.totalValue > 0 && (
+                                  <span className="top-product-val">({p.totalValue.toLocaleString('fr-FR', { maximumFractionDigits: 0 })} DA)</span>
+                                )}
+                              </div>
+                            </div>
+                            <div className="top-progress-bar">
+                              <div className={`top-progress-fill fill-${idx + 1}`} style={{ width: `${pct}%` }}></div>
+                            </div>
+                          </div>
+                        );
+                      });
+                    })()}
+                  </div>
+                </div>
+
+                {/* Plot 4 : Statut & Validité des Lots */}
+                <div className="chart-card">
+                  <div className="chart-header">
+                    <div>
+                      <h3 className="chart-title">🏷️ Contrôle Qualité des Lots</h3>
+                      <p className="chart-subtitle">Répartition sur les {batchHealthData.total} lots en inventaire</p>
+                    </div>
+                  </div>
+
+                  <div className="batch-health-list">
+                    {batchHealthData.total === 0 ? (
+                      <div className="chart-empty">
+                        <p>Aucun lot enregistré.</p>
+                      </div>
+                    ) : (() => {
+                      const { valid, noExpiry, expired, total } = batchHealthData;
+                      const pctValid = Math.round((valid / total) * 100);
+                      const pctNoExp = Math.round((noExpiry / total) * 100);
+                      const pctExp = Math.round((expired / total) * 100);
+
+                      return (
+                        <div className="batch-status-bars">
+                          <div className="batch-status-row">
+                            <div className="batch-status-head">
+                              <span className="status-title">
+                                <span className="status-icon-dot dot-normal"></span>
+                                Lots Valides & Actifs
+                              </span>
+                              <span className="status-metric"><strong>{valid}</strong> lots ({pctValid}%)</span>
+                            </div>
+                            <div className="batch-track">
+                              <div className="batch-fill fill-green" style={{ width: `${pctValid}%` }}></div>
+                            </div>
+                          </div>
+
+                          <div className="batch-status-row">
+                            <div className="batch-status-head">
+                              <span className="status-title">
+                                <span className="status-icon-dot dot-blue"></span>
+                                Lots Sans Date d'Expiration
+                              </span>
+                              <span className="status-metric"><strong>{noExpiry}</strong> lots ({pctNoExp}%)</span>
+                            </div>
+                            <div className="batch-track">
+                              <div className="batch-fill fill-blue" style={{ width: `${pctNoExp}%` }}></div>
+                            </div>
+                          </div>
+
+                          <div className="batch-status-row">
+                            <div className="batch-status-head">
+                              <span className="status-title">
+                                <span className="status-icon-dot dot-rupture"></span>
+                                Lots Périmés (Retrait nécessaire)
+                              </span>
+                              <span className={`status-metric ${expired > 0 ? 'text-danger' : ''}`}>
+                                <strong>{expired}</strong> lots ({pctExp}%)
+                              </span>
+                            </div>
+                            <div className="batch-track">
+                              <div className="batch-fill fill-red" style={{ width: `${pctExp}%` }}></div>
+                            </div>
+                          </div>
+
+                          <div className="batch-summary-box">
+                            <div className="summary-col">
+                              <span>Taux de Conformité</span>
+                              <strong style={{ color: expired === 0 ? '#10b981' : '#ef4444' }}>
+                                {expired === 0 ? '100% Conforme' : `${Math.round(((total - expired) / total) * 100)}%`}
+                              </strong>
+                            </div>
+                            <div className="summary-col">
+                              <span>Statut d'Alerte</span>
+                              <span>{expired > 0 ? `⚠️ ${expired} lot(s) à retirer` : '✅ Aucune anomalie détectée'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
                 </div>
               </div>
 

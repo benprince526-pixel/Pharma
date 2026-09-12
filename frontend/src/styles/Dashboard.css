@@ -1731,12 +1731,426 @@ body {
   overflow-x: auto;
 }
 
+/* ============================================================
+   STYLES DES PLOTS & GRAPHIQUES STATISTIQUES (ACCUEIL)
+   ============================================================ */
+
+.home-charts-row {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+}
+
+.chart-card {
+  background: #ffffff;
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1.5px solid #f1f5f9;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chart-title {
+  margin: 0;
+  font-size: 15.5px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.chart-subtitle {
+  margin: 3px 0 0 0;
+  font-size: 12px;
+  color: #64748b;
+}
+
+.chart-legend {
+  display: flex;
+  gap: 14px;
+  font-size: 12px;
+  color: #475569;
+  align-items: center;
+}
+
+.legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.legend-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.dot-in { background: #10b981; }
+.dot-out { background: #8b5cf6; }
+.dot-normal { background: #10b981; }
+.dot-low { background: #f59e0b; }
+.dot-rupture { background: #ef4444; }
+.dot-blue { background: #3b82f6; }
+
+.chart-body {
+  position: relative;
+  min-height: 200px;
+}
+
+.chart-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 180px;
+  color: #94a3b8;
+  font-size: 13px;
+  text-align: center;
+}
+
+/* SVG Bar Chart */
+.svg-chart-wrap {
+  position: relative;
+  width: 100%;
+}
+
+.svg-chart {
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.chart-bar {
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.chart-bar:hover {
+  filter: brightness(1.12);
+}
+
+.chart-axis-label {
+  font-size: 10.5px;
+  fill: #94a3b8;
+  font-family: inherit;
+}
+
+.chart-x-label {
+  font-size: 11px;
+  fill: #64748b;
+  font-weight: 600;
+  font-family: inherit;
+}
+
+.chart-tooltip {
+  position: absolute;
+  top: 6px;
+  right: 12px;
+  background: rgba(15, 23, 42, 0.94);
+  color: #ffffff;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  pointer-events: none;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.tooltip-date {
+  font-weight: 700;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+  padding-bottom: 3px;
+  margin-bottom: 2px;
+}
+
+.tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+/* Donut Chart */
+.donut-chart-container {
+  padding: 6px 0;
+}
+
+.donut-flex-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.donut-svg-wrap {
+  width: 155px;
+  height: 155px;
+  flex-shrink: 0;
+}
+
+.donut-svg {
+  width: 100%;
+  height: 100%;
+}
+
+.donut-segment {
+  cursor: pointer;
+  transition: stroke-width 0.2s ease, filter 0.2s ease;
+}
+
+.donut-segment:hover {
+  stroke-width: 25;
+  filter: drop-shadow(0 2px 4px rgba(0, 0, 0, 0.15));
+}
+
+.donut-center-val {
+  font-size: 25px;
+  font-weight: 800;
+  fill: #0f172a;
+}
+
+.donut-center-sub {
+  font-size: 10.5px;
+  font-weight: 600;
+  fill: #64748b;
+}
+
+.donut-legend-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  flex: 1;
+  min-width: 180px;
+}
+
+.donut-legend-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 7px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.donut-legend-row:hover {
+  background: #f8fafc;
+}
+
+.legend-indicator {
+  display: flex;
+  align-items: center;
+}
+
+.legend-indicator strong {
+  display: block;
+  font-size: 12.5px;
+  color: #1e293b;
+}
+
+.sub-desc {
+  display: block;
+  font-size: 11px;
+  color: #94a3b8;
+}
+
+.legend-qty {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #1e293b;
+}
+
+.text-warn {
+  color: #d97706 !important;
+}
+
+/* Top 5 Médicaments en Stock */
+.top-products-list {
+  display: flex;
+  flex-direction: column;
+  gap: 13px;
+  padding-top: 4px;
+}
+
+.top-product-item {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.top-product-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.top-product-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 65%;
+}
+
+.rank-badge {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.rank-1 { background: #fef3c7; color: #b45309; }
+.rank-2 { background: #f1f5f9; color: #475569; }
+.rank-3 { background: #ffedd5; color: #c2410c; }
+.rank-4 { background: #f8fafc; color: #64748b; }
+.rank-5 { background: #f8fafc; color: #64748b; }
+
+.top-product-name {
+  font-weight: 600;
+  color: #1e293b;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.top-product-values {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.top-product-qty {
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.top-product-val {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.top-progress-bar {
+  height: 8px;
+  background: #f1f5f9;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.top-progress-fill {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.4s ease;
+}
+
+.fill-1 { background: #10b981; }
+.fill-2 { background: #3b82f6; }
+.fill-3 { background: #8b5cf6; }
+.fill-4 { background: #06b6d4; }
+.fill-5 { background: #64748b; }
+
+/* Validité et Conformité des Lots */
+.batch-status-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.batch-status-row {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.batch-status-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12.5px;
+  color: #334155;
+}
+
+.status-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.status-icon-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+.status-metric {
+  font-size: 12px;
+  color: #64748b;
+}
+
+.batch-track {
+  height: 9px;
+  background: #f1f5f9;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.batch-fill {
+  height: 100%;
+  border-radius: 6px;
+  transition: width 0.4s ease;
+}
+
+.fill-green { background: #10b981; }
+.fill-blue { background: #3b82f6; }
+.fill-red { background: #ef4444; }
+
+.batch-summary-box {
+  display: flex;
+  justify-content: space-between;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 10px 16px;
+  margin-top: 4px;
+  font-size: 12px;
+}
+
+.summary-col {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.summary-col span {
+  color: #64748b;
+  font-size: 11px;
+}
+
 /* Responsive */
 @media (max-width: 1024px) {
   .home-stats-grid {
     grid-template-columns: repeat(2, 1fr);
   }
   .home-flow-bar {
+    grid-template-columns: 1fr;
+  }
+  .home-charts-row {
     grid-template-columns: 1fr;
   }
 }
