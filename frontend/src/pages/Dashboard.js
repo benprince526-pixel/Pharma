@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { productService, authService, userService, decodeToken, batchService, stockMovementService } from '../services/api';
 import companyLogo from '../services/logo.png';
@@ -9,6 +9,158 @@ import prodTemplate from '../templates/inventaire produits pharmaceutiques2024.x
 import lotTemplate from '../templates/inventaire lots pharmaceutiques2024.xlsx';
 import mvtTemplate from '../templates/inventaire mouvements stock pharmaceutiques2024.xlsx';
 
+// Composant réutilisable pour la pagination professionnelle des tableaux
+const TablePagination = ({
+  currentPage,
+  totalItems,
+  pageSize,
+  onPageChange,
+  onPageSizeChange,
+  itemName = 'éléments',
+}) => {
+  const totalPages = Math.max(1, Math.ceil(totalItems / pageSize));
+  const startItem = totalItems === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const endItem = Math.min(currentPage * pageSize, totalItems);
+
+  const maxButtons = 5;
+  let startPage = Math.max(1, currentPage - Math.floor(maxButtons / 2));
+  let endPage = Math.min(totalPages, startPage + maxButtons - 1);
+  if (endPage - startPage + 1 < maxButtons) {
+    startPage = Math.max(1, endPage - maxButtons + 1);
+  }
+
+  const pageNumbers = [];
+  for (let i = startPage; i <= endPage; i++) {
+    pageNumbers.push(i);
+  }
+
+  return (
+    <div className="table-pagination-bar">
+      <div className="pagination-info">
+        Affichage de <strong>{startItem}</strong> à <strong>{endItem}</strong> sur <strong>{totalItems}</strong> {itemName}
+      </div>
+
+      <div className="pagination-controls">
+        <div className="page-size-selector">
+          <span>Lignes :</span>
+          <select
+            value={pageSize}
+            onChange={(e) => {
+              onPageSizeChange(Number(e.target.value));
+              onPageChange(1);
+            }}
+          >
+            <option value={10}>10</option>
+            <option value={15}>15</option>
+            <option value={25}>25</option>
+            <option value={50}>50</option>
+            <option value={100}>100</option>
+          </select>
+        </div>
+
+        <div className="pagination-buttons">
+          <button
+            type="button"
+            className="pag-btn"
+            onClick={() => onPageChange(1)}
+            disabled={currentPage === 1}
+            title="Première page"
+          >
+            «
+          </button>
+          <button
+            type="button"
+            className="pag-btn"
+            onClick={() => onPageChange(currentPage - 1)}
+            disabled={currentPage === 1}
+            title="Page précédente"
+          >
+            ‹
+          </button>
+
+          {startPage > 1 && <span className="pag-ellipsis">...</span>}
+
+          {pageNumbers.map((p) => (
+            <button
+              type="button"
+              key={p}
+              className={`pag-btn ${p === currentPage ? 'active' : ''}`}
+              onClick={() => onPageChange(p)}
+            >
+              {p}
+            </button>
+          ))}
+
+          {endPage < totalPages && <span className="pag-ellipsis">...</span>}
+
+          <button
+            type="button"
+            className="pag-btn"
+            onClick={() => onPageChange(currentPage + 1)}
+            disabled={currentPage === totalPages || totalPages === 0}
+            title="Page suivante"
+          >
+            ›
+          </button>
+          <button
+            type="button"
+            className="pag-btn"
+            onClick={() => onPageChange(totalPages)}
+            disabled={currentPage === totalPages || totalPages === 0}
+            title="Dernière page"
+          >
+            »
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+// En-tête de colonne avec indicateur de tri interactif
+const SortableHeader = ({ label, field, sortConfig, onSort, align = 'left', style = {} }) => {
+  const isSorted = sortConfig.field === field;
+  const isAsc = sortConfig.direction === 'asc';
+
+  return (
+    <th
+      className={`sortable-th text-${align}`}
+      onClick={() => onSort(field)}
+      style={{ cursor: 'pointer', userSelect: 'none', ...style }}
+      title={`Cliquer pour trier par ${label}`}
+    >
+      <div className={`th-content align-${align}`}>
+        <span>{label}</span>
+        <span className={`sort-icon-indicator ${isSorted ? 'active' : ''}`}>
+          {isSorted ? (isAsc ? ' ▲' : ' ▼') : ' ↕'}
+        </span>
+      </div>
+    </th>
+  );
+};
+
+// Fonction de tri générique
+const genericSort = (list, sortConfig, getValue) => {
+  if (!sortConfig || !sortConfig.field) return list;
+  return [...list].sort((a, b) => {
+    const valA = getValue ? getValue(a, sortConfig.field) : a[sortConfig.field];
+    const valB = getValue ? getValue(b, sortConfig.field) : b[sortConfig.field];
+
+    if (valA === valB) return 0;
+    if (valA === null || valA === undefined || valA === '') return 1;
+    if (valB === null || valB === undefined || valB === '') return -1;
+
+    let comp = 0;
+    if (typeof valA === 'number' && typeof valB === 'number') {
+      comp = valA - valB;
+    } else {
+      comp = String(valA).localeCompare(String(valB), 'fr', { numeric: true, sensitivity: 'base' });
+    }
+
+    return sortConfig.direction === 'asc' ? comp : -comp;
+  });
+};
+
 function Dashboard({ onLogout }) {
   const [activeSection, setActiveSection] = useState('inventory');
   const [medicines, setMedicines] = useState([]);
@@ -18,6 +170,34 @@ function Dashboard({ onLogout }) {
   const [showRegisterForm, setShowRegisterForm] = useState(false);
   const [showChangePasswordForm, setShowChangePasswordForm] = useState(false);
   const [users, setUsers] = useState([]);
+
+  // États de recherche, filtrage, tri et pagination pour les tableaux
+  const [medSearch, setMedSearch] = useState('');
+  const [medFilter, setMedFilter] = useState('all'); // all, in_stock, out_of_stock
+  const [medSort, setMedSort] = useState({ field: 'item', direction: 'asc' });
+  const [medPage, setMedPage] = useState(1);
+  const [medPageSize, setMedPageSize] = useState(15);
+
+  const [batchSearch, setBatchSearch] = useState('');
+  const [batchFilter, setBatchFilter] = useState('all'); // all, with_expiry, no_expiry, low_stock
+  const [batchSort, setBatchSort] = useState({ field: 'batch_id', direction: 'desc' });
+  const [batchPage, setBatchPage] = useState(1);
+  const [batchPageSize, setBatchPageSize] = useState(15);
+
+  const [expSearch, setExpSearch] = useState('');
+  const [expSort, setExpSort] = useState({ field: 'expiryDate', direction: 'asc' });
+  const [expPage, setExpPage] = useState(1);
+  const [expPageSize, setExpPageSize] = useState(15);
+
+  const [mvtSearch, setMvtSearch] = useState('');
+  const [mvtFilter, setMvtFilter] = useState('all'); // all, IN, OUT
+  const [mvtSort, setMvtSort] = useState({ field: 'id', direction: 'desc' });
+  const [mvtPage, setMvtPage] = useState(1);
+  const [mvtPageSize, setMvtPageSize] = useState(15);
+
+  const [userSearch, setUserSearch] = useState('');
+  const [userPage, setUserPage] = useState(1);
+  const [userPageSize, setUserPageSize] = useState(10);
 
   // États pour l'import Excel d'inventaire
   const [showImportModal, setShowImportModal] = useState(false);
@@ -977,6 +1157,183 @@ const totalValue = batches
     return new Date(batch.expiryDate) < today;
   });
 
+  // -------------------------------------------------------------
+  // Filtrage, Tri et Pagination pour l'Inventaire des Médicaments
+  // -------------------------------------------------------------
+  const filteredMedicines = useMemo(() => {
+    let list = medicines;
+
+    if (medSearch.trim()) {
+      const q = medSearch.trim().toLowerCase();
+      list = list.filter(m =>
+        (m.item && m.item.toLowerCase().includes(q)) ||
+        (m.designation && m.designation.toLowerCase().includes(q)) ||
+        (String(m.product_id).includes(q))
+      );
+    }
+
+    if (medFilter === 'in_stock') {
+      list = list.filter(m => (m.quantity || 0) > 0);
+    } else if (medFilter === 'out_of_stock') {
+      list = list.filter(m => (m.quantity || 0) <= 0);
+    }
+
+    return genericSort(list, medSort, (item, field) => {
+      if (field === 'total') {
+        return (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+      }
+      return item[field];
+    });
+  }, [medicines, medSearch, medFilter, medSort]);
+
+  const paginatedMedicines = useMemo(() => {
+    const start = (medPage - 1) * medPageSize;
+    return filteredMedicines.slice(start, start + medPageSize);
+  }, [filteredMedicines, medPage, medPageSize]);
+
+  // -------------------------------------------------------------
+  // Filtrage, Tri et Pagination pour les Lots Actifs
+  // -------------------------------------------------------------
+  const filteredBatches = useMemo(() => {
+    let list = activeBatches;
+
+    if (batchSearch.trim()) {
+      const q = batchSearch.trim().toLowerCase();
+      list = list.filter(b => {
+        const prodName = typeof b.product === 'object'
+          ? (b.product?.item || b.product?.designation || '')
+          : (medicines.find(m => (m.id ?? m.product_id) === b.product)?.item || '');
+        const prodId = typeof b.product === 'object'
+          ? (b.product?.product_id || b.product?.id || '')
+          : String(b.product || '');
+        return (
+          String(b.batch_id).includes(q) ||
+          prodName.toLowerCase().includes(q) ||
+          String(prodId).includes(q) ||
+          (b.expiryDate && b.expiryDate.includes(q))
+        );
+      });
+    }
+
+    if (batchFilter === 'with_expiry') {
+      list = list.filter(b => b.expiryDate);
+    } else if (batchFilter === 'no_expiry') {
+      list = list.filter(b => !b.expiryDate);
+    } else if (batchFilter === 'low_stock') {
+      list = list.filter(b => (b.batch_quantity || 0) < 10);
+    }
+
+    return genericSort(list, batchSort, (b, field) => {
+      if (field === 'productName') {
+        return typeof b.product === 'object'
+          ? (b.product?.item || b.product?.designation || '')
+          : (medicines.find(m => (m.id ?? m.product_id) === b.product)?.item || '');
+      }
+      if (field === 'productId') {
+        return typeof b.product === 'object'
+          ? (b.product?.product_id || b.product?.id || 0)
+          : (b.product || 0);
+      }
+      return b[field];
+    });
+  }, [activeBatches, batchSearch, batchFilter, batchSort, medicines]);
+
+  const paginatedBatches = useMemo(() => {
+    const start = (batchPage - 1) * batchPageSize;
+    return filteredBatches.slice(start, start + batchPageSize);
+  }, [filteredBatches, batchPage, batchPageSize]);
+
+  // -------------------------------------------------------------
+  // Filtrage, Tri et Pagination pour les Lots Périmés
+  // -------------------------------------------------------------
+  const filteredExpiredBatches = useMemo(() => {
+    let list = expiredBatches;
+
+    if (expSearch.trim()) {
+      const q = expSearch.trim().toLowerCase();
+      list = list.filter(b => {
+        const prodName = typeof b.product === 'object' ? (b.product?.item || '') : '';
+        return (
+          String(b.batch_id).includes(q) ||
+          prodName.toLowerCase().includes(q) ||
+          (b.expiryDate && b.expiryDate.includes(q))
+        );
+      });
+    }
+
+    return genericSort(list, expSort, (b, field) => {
+      if (field === 'productName') return typeof b.product === 'object' ? (b.product?.item || '') : '';
+      return b[field];
+    });
+  }, [expiredBatches, expSearch, expSort]);
+
+  const paginatedExpiredBatches = useMemo(() => {
+    const start = (expPage - 1) * expPageSize;
+    return filteredExpiredBatches.slice(start, start + expPageSize);
+  }, [filteredExpiredBatches, expPage, expPageSize]);
+
+  // -------------------------------------------------------------
+  // Filtrage, Tri et Pagination pour l'Historique des Mouvements
+  // -------------------------------------------------------------
+  const filteredMovements = useMemo(() => {
+    let list = stockMovements;
+
+    if (mvtSearch.trim()) {
+      const q = mvtSearch.trim().toLowerCase();
+      list = list.filter(m => {
+        const prodName = m.batch?.product?.item || '';
+        const batchId = String(m.batch?.batch_id || '');
+        const reason = (m.reason || '').toLowerCase();
+        const type = (m.movement_type || '').toLowerCase();
+        return (
+          String(m.id).includes(q) ||
+          prodName.toLowerCase().includes(q) ||
+          batchId.includes(q) ||
+          reason.includes(q) ||
+          type.includes(q)
+        );
+      });
+    }
+
+    if (mvtFilter === 'IN') {
+      list = list.filter(m => m.movement_type === 'IN');
+    } else if (mvtFilter === 'OUT') {
+      list = list.filter(m => m.movement_type === 'OUT');
+    }
+
+    return genericSort(list, mvtSort, (m, field) => {
+      if (field === 'productName') return m.batch?.product?.item || '';
+      if (field === 'batchId') return m.batch?.batch_id || 0;
+      return m[field];
+    });
+  }, [stockMovements, mvtSearch, mvtFilter, mvtSort]);
+
+  const paginatedMovements = useMemo(() => {
+    const start = (mvtPage - 1) * mvtPageSize;
+    return filteredMovements.slice(start, start + mvtPageSize);
+  }, [filteredMovements, mvtPage, mvtPageSize]);
+
+  // -------------------------------------------------------------
+  // Filtrage et Pagination pour les Utilisateurs
+  // -------------------------------------------------------------
+  const filteredUsers = useMemo(() => {
+    let list = users;
+    if (userSearch.trim()) {
+      const q = userSearch.trim().toLowerCase();
+      list = list.filter(u =>
+        (u.username && u.username.toLowerCase().includes(q)) ||
+        (u.email && u.email.toLowerCase().includes(q)) ||
+        (u.role && u.role.toLowerCase().includes(q))
+      );
+    }
+    return list;
+  }, [users, userSearch]);
+
+  const paginatedUsers = useMemo(() => {
+    const start = (userPage - 1) * userPageSize;
+    return filteredUsers.slice(start, start + userPageSize);
+  }, [filteredUsers, userPage, userPageSize]);
+
   if (loading) {
     return (
       <div className="dashboard-loading">
@@ -1149,20 +1506,105 @@ const totalValue = batches
                 </div>
               )}
 
-              {users.length > 0 && (
+              {/* Toolbar de Recherche et Filtres pour les Utilisateurs */}
+              <div className="table-toolbar">
+                <div className="search-bar-wrap">
+                  <span className="search-icon">🔍</span>
+                  <input
+                    type="text"
+                    placeholder="Rechercher un utilisateur (nom, email, rôle)..."
+                    value={userSearch}
+                    onChange={(e) => {
+                      setUserSearch(e.target.value);
+                      setUserPage(1);
+                    }}
+                    className="table-search-input"
+                  />
+                  {userSearch && (
+                    <button
+                      className="clear-search-btn"
+                      onClick={() => {
+                        setUserSearch('');
+                        setUserPage(1);
+                      }}
+                      title="Effacer la recherche"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                <div className="filter-chips-group">
+                  <button
+                    className={`filter-chip ${userFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => {
+                      setUserFilter('all');
+                      setUserPage(1);
+                    }}
+                  >
+                    Tous ({users.length})
+                  </button>
+                  <button
+                    className={`filter-chip ${userFilter === 'ADMIN' ? 'active' : ''}`}
+                    onClick={() => {
+                      setUserFilter('ADMIN');
+                      setUserPage(1);
+                    }}
+                  >
+                    Admins ({users.filter((u) => u.role === 'ADMIN').length})
+                  </button>
+                  <button
+                    className={`filter-chip ${userFilter === 'PHARMACIST' ? 'active' : ''}`}
+                    onClick={() => {
+                      setUserFilter('PHARMACIST');
+                      setUserPage(1);
+                    }}
+                  >
+                    Pharmaciens ({users.filter((u) => u.role === 'PHARMACIST').length})
+                  </button>
+                  <button
+                    className={`filter-chip ${userFilter === 'STOCK_MANAGER' ? 'active' : ''}`}
+                    onClick={() => {
+                      setUserFilter('STOCK_MANAGER');
+                      setUserPage(1);
+                    }}
+                  >
+                    Gestionnaires ({users.filter((u) => u.role === 'STOCK_MANAGER').length})
+                  </button>
+                </div>
+              </div>
+
+              {users.length === 0 ? (
+                <div className="no-data">
+                  <p>❌ Aucun utilisateur disponible</p>
+                </div>
+              ) : filteredUsers.length === 0 ? (
+                <div className="no-data">
+                  <p>🔍 Aucun utilisateur ne correspond à votre recherche ou filtre.</p>
+                  <button
+                    className="reset-filters-btn"
+                    onClick={() => {
+                      setUserSearch('');
+                      setUserFilter('all');
+                      setUserPage(1);
+                    }}
+                  >
+                    Réinitialiser les filtres
+                  </button>
+                </div>
+              ) : (
                 <div className="users-table-wrapper">
-                  <h3>Liste des Utilisateurs</h3>
-                  <table className="users-table">
+                  <table className="users-table medicines-table">
                     <thead>
                       <tr>
-                        <th>Nom d'utilisateur</th>
-                        <th>Email</th>
-                        <th>Rôle</th>
-                        <th>Actions</th>
+                        <SortableHeader label="Nom d'utilisateur" field="username" sortConfig={userSort} onSort={(f) => handleSort(userSort, setUserSort, f)} />
+                        <SortableHeader label="Email" field="email" sortConfig={userSort} onSort={(f) => handleSort(userSort, setUserSort, f)} />
+                        <SortableHeader label="Rôle" field="role" sortConfig={userSort} onSort={(f) => handleSort(userSort, setUserSort, f)} align="center" />
+                        <th style={{ textAlign: 'center' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {users.map((user) => (
+                      {paginatedUsers.map((user) => (
                         <tr key={user.id}>
                           {editingUser === user.id ? (
                             <>
@@ -1226,9 +1668,9 @@ const totalValue = batches
                             </>
                           ) : (
                             <>
-                              <td>{user.username}</td>
+                              <td><strong>{user.username}</strong></td>
                               <td>{user.email}</td>
-                              <td>
+                              <td style={{ textAlign: 'center' }}>
                                 <span className={`role-badge role-${user.role.toLowerCase()}`}>
                                   {user.role}
                                 </span>
@@ -1256,6 +1698,15 @@ const totalValue = batches
                       ))}
                     </tbody>
                   </table>
+
+                  <TablePagination
+                    currentPage={userPage}
+                    totalItems={filteredUsers.length}
+                    pageSize={userPageSize}
+                    onPageChange={setUserPage}
+                    onPageSizeChange={setUserPageSize}
+                    itemName="utilisateurs"
+                  />
                 </div>
               )}
             </section>
@@ -1492,26 +1943,99 @@ const totalValue = batches
                 </div>
               )}
 
+              {/* Toolbar de Recherche et Filtres */}
+              <div className="table-toolbar">
+                <div className="search-bar-wrap">
+                  <span className="search-icon">🔍</span>
+                  <input
+                    type="text"
+                    placeholder="Rechercher un médicament (nom, catégorie, ID)..."
+                    value={medSearch}
+                    onChange={(e) => {
+                      setMedSearch(e.target.value);
+                      setMedPage(1);
+                    }}
+                    className="table-search-input"
+                  />
+                  {medSearch && (
+                    <button
+                      className="clear-search-btn"
+                      onClick={() => {
+                        setMedSearch('');
+                        setMedPage(1);
+                      }}
+                      title="Effacer la recherche"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                <div className="filter-chips-group">
+                  <button
+                    className={`filter-chip ${medFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => {
+                      setMedFilter('all');
+                      setMedPage(1);
+                    }}
+                  >
+                    Tous ({medicines.length})
+                  </button>
+                  <button
+                    className={`filter-chip ${medFilter === 'in_stock' ? 'active' : ''}`}
+                    onClick={() => {
+                      setMedFilter('in_stock');
+                      setMedPage(1);
+                    }}
+                  >
+                    En stock ({medicines.filter((m) => (m.quantity || 0) > 0).length})
+                  </button>
+                  <button
+                    className={`filter-chip ${medFilter === 'out_of_stock' ? 'active' : ''}`}
+                    onClick={() => {
+                      setMedFilter('out_of_stock');
+                      setMedPage(1);
+                    }}
+                  >
+                    Rupture ({medicines.filter((m) => (m.quantity || 0) <= 0).length})
+                  </button>
+                </div>
+              </div>
+
               {medicines.length === 0 ? (
                 <div className="no-data">
                   <p>❌ Aucun médicament disponible</p>
+                </div>
+              ) : filteredMedicines.length === 0 ? (
+                <div className="no-data">
+                  <p>🔍 Aucun médicament ne correspond à votre recherche ou filtre.</p>
+                  <button
+                    className="reset-filters-btn"
+                    onClick={() => {
+                      setMedSearch('');
+                      setMedFilter('all');
+                      setMedPage(1);
+                    }}
+                  >
+                    Réinitialiser les filtres
+                  </button>
                 </div>
               ) : (
                 <div className="medicines-table-wrapper">
                   <table className="medicines-table">
                     <thead>
                       <tr>
-                        <th>Id</th>
-                        <th>Nom</th>
-                        <th>Catégorie</th>
-                        <th>Quantité</th>
-                        <th>Prix Unitaire</th>
-                        <th>Total</th>
-                        <th>Actions</th>
+                        <SortableHeader label="Id" field="product_id" sortConfig={medSort} onSort={(f) => handleSort(medSort, setMedSort, f)} />
+                        <SortableHeader label="Nom du médicament" field="item" sortConfig={medSort} onSort={(f) => handleSort(medSort, setMedSort, f)} />
+                        <SortableHeader label="Catégorie" field="designation" sortConfig={medSort} onSort={(f) => handleSort(medSort, setMedSort, f)} />
+                        <SortableHeader label="Quantité" field="quantity" sortConfig={medSort} onSort={(f) => handleSort(medSort, setMedSort, f)} align="center" />
+                        <SortableHeader label="Prix Unitaire" field="unitPrice" sortConfig={medSort} onSort={(f) => handleSort(medSort, setMedSort, f)} align="right" />
+                        <SortableHeader label="Valeur Totale" field="total" sortConfig={medSort} onSort={(f) => handleSort(medSort, setMedSort, f)} align="right" />
+                        <th style={{ textAlign: 'center' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {medicines.map((medicine) => {
+                      {paginatedMedicines.map((medicine) => {
                         const isEditing = editingProductId === medicine.product_id;
                         const quantity = isEditing ? (parseFloat(editProductForm.quantity) || 0) : (medicine.quantity || 0);
                         const unitPrice = isEditing ? (parseFloat(editProductForm.unitPrice) || 0) : (medicine.unitPrice || 0);
@@ -1567,7 +2091,7 @@ const totalValue = batches
                                     className="edit-input"
                                   />
                                 </td>
-                                <td className="total-price">
+                                <td className="total-price" style={{ textAlign: 'right' }}>
                                   {(quantity * unitPrice).toFixed(2)} DA
                                 </td>
                                 <td className="actions">
@@ -1589,19 +2113,19 @@ const totalValue = batches
                               </>
                             ) : (
                               <>
-                                <td className="medicine-id">{medicine.product_id}</td>
-                                <td className="medicine-name">{medicine.item}</td>
+                                <td className="medicine-id">#{medicine.product_id}</td>
+                                <td className="medicine-name"><strong>{medicine.item}</strong></td>
                                 <td>
                                   <span className="category-badge">{medicine.designation}</span>
                                 </td>
-                                <td className="quantity">
-                                  <span className={`quantity-badge ${quantity < 100 ? 'low' : 'normal'}`}>
+                                <td className="quantity" style={{ textAlign: 'center' }}>
+                                  <span className={`quantity-badge ${quantity <= 0 ? 'out-of-stock' : quantity < 20 ? 'low' : 'normal'}`}>
                                     {quantity}
                                   </span>
                                 </td>
-                                <td>{unitPrice.toFixed(2)} DA</td>
-                                <td className="total-price">
-                                  {(quantity * unitPrice).toFixed(2)} DA
+                                <td style={{ textAlign: 'right' }}>{unitPrice.toFixed(2)} DA</td>
+                                <td className="total-price" style={{ textAlign: 'right' }}>
+                                  <strong>{(quantity * unitPrice).toFixed(2)} DA</strong>
                                 </td>
                                 <td className="actions">
                                   <button
@@ -1626,6 +2150,15 @@ const totalValue = batches
                       })}
                     </tbody>
                   </table>
+
+                  <TablePagination
+                    currentPage={medPage}
+                    totalItems={filteredMedicines.length}
+                    pageSize={medPageSize}
+                    onPageChange={setMedPage}
+                    onPageSizeChange={setMedPageSize}
+                    itemName="médicaments"
+                  />
                 </div>
               )}
             </section>
@@ -1724,25 +2257,107 @@ const totalValue = batches
                 </div>
               )}
 
+              {/* Toolbar de Recherche et Filtres pour les Lots */}
+              <div className="table-toolbar">
+                <div className="search-bar-wrap">
+                  <span className="search-icon">🔍</span>
+                  <input
+                    type="text"
+                    placeholder="Rechercher un lot (ID lot, médicament, date)..."
+                    value={batchSearch}
+                    onChange={(e) => {
+                      setBatchSearch(e.target.value);
+                      setBatchPage(1);
+                    }}
+                    className="table-search-input"
+                  />
+                  {batchSearch && (
+                    <button
+                      className="clear-search-btn"
+                      onClick={() => {
+                        setBatchSearch('');
+                        setBatchPage(1);
+                      }}
+                      title="Effacer la recherche"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+
+                <div className="filter-chips-group">
+                  <button
+                    className={`filter-chip ${batchFilter === 'all' ? 'active' : ''}`}
+                    onClick={() => {
+                      setBatchFilter('all');
+                      setBatchPage(1);
+                    }}
+                  >
+                    Tous ({activeBatches.length})
+                  </button>
+                  <button
+                    className={`filter-chip ${batchFilter === 'with_expiry' ? 'active' : ''}`}
+                    onClick={() => {
+                      setBatchFilter('with_expiry');
+                      setBatchPage(1);
+                    }}
+                  >
+                    Avec date ({activeBatches.filter((b) => b.expiryDate).length})
+                  </button>
+                  <button
+                    className={`filter-chip ${batchFilter === 'no_expiry' ? 'active' : ''}`}
+                    onClick={() => {
+                      setBatchFilter('no_expiry');
+                      setBatchPage(1);
+                    }}
+                  >
+                    Sans date ({activeBatches.filter((b) => !b.expiryDate).length})
+                  </button>
+                  <button
+                    className={`filter-chip ${batchFilter === 'low_stock' ? 'active' : ''}`}
+                    onClick={() => {
+                      setBatchFilter('low_stock');
+                      setBatchPage(1);
+                    }}
+                  >
+                    Stock faible &lt; 10 ({activeBatches.filter((b) => (b.batch_quantity || 0) < 10).length})
+                  </button>
+                </div>
+              </div>
+
               {batches.length === 0 ? (
                 <div className="no-data">
                   <p>❌ Aucun lot disponible</p>
+                </div>
+              ) : filteredBatches.length === 0 ? (
+                <div className="no-data">
+                  <p>🔍 Aucun lot ne correspond à votre recherche ou filtre.</p>
+                  <button
+                    className="reset-filters-btn"
+                    onClick={() => {
+                      setBatchSearch('');
+                      setBatchFilter('all');
+                      setBatchPage(1);
+                    }}
+                  >
+                    Réinitialiser les filtres
+                  </button>
                 </div>
               ) : (
                 <div className="medicines-table-wrapper">
                   <table className="medicines-table">
                     <thead>
                       <tr>
-                        <th>Id lot</th>
-                        <th>Date d'expiration</th>
-                        <th>Quantité</th>
-                        <th>Id Produit</th>
-                        <th>Produit</th>
-                        <th>Actions</th>
+                        <SortableHeader label="Id lot" field="batch_id" sortConfig={batchSort} onSort={(f) => handleSort(batchSort, setBatchSort, f)} />
+                        <SortableHeader label="Date d'expiration" field="expiryDate" sortConfig={batchSort} onSort={(f) => handleSort(batchSort, setBatchSort, f)} align="center" />
+                        <SortableHeader label="Quantité" field="batch_quantity" sortConfig={batchSort} onSort={(f) => handleSort(batchSort, setBatchSort, f)} align="center" />
+                        <SortableHeader label="Id Produit" field="productId" sortConfig={batchSort} onSort={(f) => handleSort(batchSort, setBatchSort, f)} align="center" />
+                        <SortableHeader label="Produit" field="productName" sortConfig={batchSort} onSort={(f) => handleSort(batchSort, setBatchSort, f)} />
+                        <th style={{ textAlign: 'center' }}>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {activeBatches.map((b) => {
+                      {paginatedBatches.map((b) => {
                         const isEditing = editingBatchId === b.batch_id;
                         const rawExpiry = isEditing ? editBatchForm.expiryDate : b.expiryDate;
                         const quantity = isEditing ? editBatchForm.batch_quantity : (b.batch_quantity || b.quantity || 0);
@@ -1768,7 +2383,7 @@ const totalValue = batches
                           <tr key={b.batch_id}>
                             {isEditing ? (
                               <>
-                                <td className="medicine-id">{b.batch_id}</td>
+                                <td className="medicine-id">#{b.batch_id}</td>
                                 <td>
                                   <input
                                     type="date"
@@ -1798,10 +2413,12 @@ const totalValue = batches
                                   >
                                     <option value="">Sélectionnez un médicament</option>
                                     {medicines.map((m) => {
-                                      const mId = m.id ?? m.productId ?? m.product_id;
+                                      const itemId = m.id ?? m.productId ?? m.product_id;
+                                      const itemName = m.nom ?? m.name ?? m.item ?? m.designation;
+                                      
                                       return (
-                                        <option key={mId} value={mId}>
-                                          {m.nom || m.name || m.item || m.designation}
+                                        <option key={itemId} value={itemId}>
+                                          {itemName}
                                         </option>
                                       );
                                     })}
@@ -1826,26 +2443,26 @@ const totalValue = batches
                               </>
                             ) : (
                               <>
-                                <td className="medicine-id">{b.batch_id}</td>
+                                <td className="medicine-id">#{b.batch_id}</td>
                                 {(() => {
                                   const daysUntilExpiry = rawExpiry 
                                     ? Math.ceil((new Date(rawExpiry) - new Date()) / (1000 * 60 * 60 * 24))
                                     : null;
                                   return (
-                                    <td>
+                                    <td style={{ textAlign: 'center' }}>
                                       <span className={`quantity-badge ${daysUntilExpiry !== null && daysUntilExpiry < 30 ? 'low' : 'normal'}`}>
                                         {rawExpiry || 'Sans date'}
                                       </span>
                                     </td>
                                   );
                                 })()}
-                                <td className="quantity">
-                                  <span className="quantity-badge normal">
+                                <td className="quantity" style={{ textAlign: 'center' }}>
+                                  <span className={`quantity-badge ${quantity <= 0 ? 'out-of-stock' : quantity < 10 ? 'low' : 'normal'}`}>
                                     {quantity}
                                   </span>
                                 </td>
-                                <td>{renderProductId(b.product)}</td>
-                                <td className="medicine-name">{renderProductName(b.product)}</td>
+                                <td style={{ textAlign: 'center' }}>#{renderProductId(b.product)}</td>
+                                <td className="medicine-name"><strong>{renderProductName(b.product)}</strong></td>
                                 <td className="actions">
                                   <button
                                     className="action-button edit-button"
@@ -1869,6 +2486,15 @@ const totalValue = batches
                       })}
                     </tbody>
                   </table>
+
+                  <TablePagination
+                    currentPage={batchPage}
+                    totalItems={filteredBatches.length}
+                    pageSize={batchPageSize}
+                    onPageChange={setBatchPage}
+                    onPageSizeChange={setBatchPageSize}
+                    itemName="lots"
+                  />
                 </div>
               )}
             </section>
@@ -1880,56 +2506,122 @@ const totalValue = batches
                 <h2>⏰ Lots périmés ({expiredBatches.length})</h2>
               </div>
 
-              <div className="medicines-table-wrapper">
-                <table className="medicines-table">
-                  <thead>
-                    <tr>
-                      <th>Lot</th>
-                      <th>Produit</th>
-                      <th>Date expiration</th>
-                      <th>Quantité restante</th>
-                    </tr>
-                  </thead>
-
-                  <tbody>
-                  {expiredBatches.map(batch => (
-                    <tr key={batch.batch_id}>
-                      <td>{batch.batch_id}</td>
-                      <td>{batch.product?.item}</td>
-                      <td>{batch.expiryDate}</td>
-                      <td>{batch.batch_quantity}</td>
-                      <td className="actions">
-                      {!batch.archived && (
-                        <>
-                          <button 
-                            className="action-button delete-button"
-                            onClick={() => handleClearExpiredBatch(batch)}
-                            title="Créer un mouvement de sortie et mettre la quantité à 0"
-                          >
-                            🗑️ Retirer du stock
-                          </button>
-
-                          <button 
-                            className="action-button edit-button"
-                            onClick={() => handleArchiveBatch(batch)}
-                            title="Conserver la quantité mais ignorer dans le calcul de stock"
-                          >
-                            📦 Archiver
-                          </button>
-                        </>
-                      )}
-
-                      {batch.archived && (
-                        <span className="archived-label">
-                          📦 Archivé
-                        </span>
-                      )}
-</td>
-                    </tr>
-                  ))}
-                </tbody>
-                </table>
+              {/* Toolbar de Recherche pour les lots périmés */}
+              <div className="table-toolbar">
+                <div className="search-bar-wrap">
+                  <span className="search-icon">🔍</span>
+                  <input
+                    type="text"
+                    placeholder="Rechercher un lot périmé (ID lot, produit, date)..."
+                    value={expSearch}
+                    onChange={(e) => {
+                      setExpSearch(e.target.value);
+                      setExpPage(1);
+                    }}
+                    className="table-search-input"
+                  />
+                  {expSearch && (
+                    <button
+                      className="clear-search-btn"
+                      onClick={() => {
+                        setExpSearch('');
+                        setExpPage(1);
+                      }}
+                      title="Effacer la recherche"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
               </div>
+
+              {expiredBatches.length === 0 ? (
+                <div className="no-data">
+                  <p>✓ Aucun lot périmé à signaler. Votre inventaire est à jour !</p>
+                </div>
+              ) : filteredExpiredBatches.length === 0 ? (
+                <div className="no-data">
+                  <p>🔍 Aucun lot périmé ne correspond à votre recherche.</p>
+                  <button
+                    className="reset-filters-btn"
+                    onClick={() => {
+                      setExpSearch('');
+                      setExpPage(1);
+                    }}
+                  >
+                    Réinitialiser la recherche
+                  </button>
+                </div>
+              ) : (
+                <div className="medicines-table-wrapper">
+                  <table className="medicines-table">
+                    <thead>
+                      <tr>
+                        <SortableHeader label="Lot" field="batch_id" sortConfig={expSort} onSort={(f) => handleSort(expSort, setExpSort, f)} />
+                        <SortableHeader label="Produit" field="productName" sortConfig={expSort} onSort={(f) => handleSort(expSort, setExpSort, f)} />
+                        <SortableHeader label="Date expiration" field="expiryDate" sortConfig={expSort} onSort={(f) => handleSort(expSort, setExpSort, f)} align="center" />
+                        <SortableHeader label="Quantité restante" field="batch_quantity" sortConfig={expSort} onSort={(f) => handleSort(expSort, setExpSort, f)} align="center" />
+                        <th style={{ textAlign: 'center' }}>Actions</th>
+                      </tr>
+                    </thead>
+
+                    <tbody>
+                      {paginatedExpiredBatches.map(batch => (
+                        <tr key={batch.batch_id}>
+                          <td className="medicine-id">#{batch.batch_id}</td>
+                          <td className="medicine-name"><strong>{batch.product?.item || 'N/A'}</strong></td>
+                          <td style={{ textAlign: 'center' }}>
+                            <span className="quantity-badge low">
+                              {batch.expiryDate}
+                            </span>
+                          </td>
+                          <td className="quantity" style={{ textAlign: 'center' }}>
+                            <span className="quantity-badge out-of-stock">
+                              {batch.batch_quantity}
+                            </span>
+                          </td>
+                          <td className="actions">
+                            {!batch.archived && (
+                              <>
+                                <button 
+                                  className="action-button delete-button"
+                                  onClick={() => handleClearExpiredBatch(batch)}
+                                  title="Créer un mouvement de sortie et mettre la quantité à 0"
+                                >
+                                  🗑️ Retirer du stock
+                                </button>
+
+                                <button 
+                                  className="action-button edit-button"
+                                  onClick={() => handleArchiveBatch(batch)}
+                                  title="Conserver la quantité mais ignorer dans le calcul de stock"
+                                >
+                                  📦 Archiver
+                                </button>
+                              </>
+                            )}
+
+                            {batch.archived && (
+                              <span className="archived-label">
+                                📦 Archivé
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+
+                  <TablePagination
+                    currentPage={expPage}
+                    totalItems={filteredExpiredBatches.length}
+                    pageSize={expPageSize}
+                    onPageChange={setExpPage}
+                    onPageSizeChange={setExpPageSize}
+                    itemName="lots périmés"
+                  />
+                </div>
+              )}
             </section>
           )}
 
@@ -2047,33 +2739,106 @@ const totalValue = batches
                       {addMovementSuccess && <div className="success-message">{addMovementSuccess}</div>}
 
                       <button type="submit" className="submit-button">
-                        ✓ Enregistrer le mouvement
+                        ✓ Ajouter le mouvement
                       </button>
                     </form>
                   </div>
                 )}
 
+                {/* Toolbar de Recherche et Filtres pour les Mouvements */}
+                <div className="table-toolbar">
+                  <div className="search-bar-wrap">
+                    <span className="search-icon">🔍</span>
+                    <input
+                      type="text"
+                      placeholder="Rechercher un mouvement (ID, produit, lot, motif)..."
+                      value={mvtSearch}
+                      onChange={(e) => {
+                        setMvtSearch(e.target.value);
+                        setMvtPage(1);
+                      }}
+                      className="table-search-input"
+                    />
+                    {mvtSearch && (
+                      <button
+                        className="clear-search-btn"
+                        onClick={() => {
+                          setMvtSearch('');
+                          setMvtPage(1);
+                        }}
+                        title="Effacer la recherche"
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
+
+                  <div className="filter-chips-group">
+                    <button
+                      className={`filter-chip ${mvtFilter === 'all' ? 'active' : ''}`}
+                      onClick={() => {
+                        setMvtFilter('all');
+                        setMvtPage(1);
+                      }}
+                    >
+                      Tous ({stockMovements.length})
+                    </button>
+                    <button
+                      className={`filter-chip ${mvtFilter === 'IN' ? 'active' : ''}`}
+                      onClick={() => {
+                        setMvtFilter('IN');
+                        setMvtPage(1);
+                      }}
+                    >
+                      Entrées IN ({stockMovements.filter((m) => m.movement_type === 'IN').length})
+                    </button>
+                    <button
+                      className={`filter-chip ${mvtFilter === 'OUT' ? 'active' : ''}`}
+                      onClick={() => {
+                        setMvtFilter('OUT');
+                        setMvtPage(1);
+                      }}
+                    >
+                      Sorties OUT ({stockMovements.filter((m) => m.movement_type === 'OUT').length})
+                    </button>
+                  </div>
+                </div>
+
                 {stockMovements.length === 0 ? (
                   <div className="no-data">
                     <p>❌ Aucun mouvement de stock disponible</p>
+                  </div>
+                ) : filteredMovements.length === 0 ? (
+                  <div className="no-data">
+                    <p>🔍 Aucun mouvement ne correspond à votre recherche ou filtre.</p>
+                    <button
+                      className="reset-filters-btn"
+                      onClick={() => {
+                        setMvtSearch('');
+                        setMvtFilter('all');
+                        setMvtPage(1);
+                      }}
+                    >
+                      Réinitialiser les filtres
+                    </button>
                   </div>
                 ) : (
                   <div className="medicines-table-wrapper">
                     <table className="medicines-table">
                       <thead>
                         <tr>
-                          <th>ID</th>
-                          <th>Type</th>
-                          <th>Quantité</th>
-                          <th>Motif</th>
-                          <th>ID Lot</th>
-                          <th>Produit</th>
-                          <th>Date insertion lot</th>
-                          <th>Actions</th>
+                          <SortableHeader label="ID" field="id" sortConfig={mvtSort} onSort={(f) => handleSort(mvtSort, setMvtSort, f)} />
+                          <SortableHeader label="Type" field="movement_type" sortConfig={mvtSort} onSort={(f) => handleSort(mvtSort, setMvtSort, f)} align="center" />
+                          <SortableHeader label="Quantité" field="quantity" sortConfig={mvtSort} onSort={(f) => handleSort(mvtSort, setMvtSort, f)} align="center" />
+                          <SortableHeader label="Motif" field="reason" sortConfig={mvtSort} onSort={(f) => handleSort(mvtSort, setMvtSort, f)} />
+                          <SortableHeader label="ID Lot" field="batchId" sortConfig={mvtSort} onSort={(f) => handleSort(mvtSort, setMvtSort, f)} align="center" />
+                          <SortableHeader label="Produit" field="productName" sortConfig={mvtSort} onSort={(f) => handleSort(mvtSort, setMvtSort, f)} />
+                          <SortableHeader label="Date opération" field="createdAt" sortConfig={mvtSort} onSort={(f) => handleSort(mvtSort, setMvtSort, f)} align="center" />
+                          <th style={{ textAlign: 'center' }}>Actions</th>
                         </tr>
                       </thead>
                       <tbody>
-                        {stockMovements.map((movement) => {
+                        {paginatedMovements.map((movement) => {
                           const isEditing = editingMovementId === movement.id;
 
                           const renderBatchId = (batchObj) => {
@@ -2098,7 +2863,7 @@ const totalValue = batches
                             <tr key={movement.id}>
                               {isEditing ? (
                                 <>
-                                  <td className="medicine-id">{movement.id}</td>
+                                  <td className="medicine-id">#{movement.id}</td>
                                   <td>
                                     <select
                                       name="movement_type"
@@ -2132,7 +2897,7 @@ const totalValue = batches
                                   <td>
                                     <select
                                       name="batch"
-                                      value={editMovementForm.batch || ""}
+                                      value={editMovementForm.batch}
                                       onChange={handleEditMovementChange}
                                       className="edit-input"
                                     >
@@ -2148,7 +2913,7 @@ const totalValue = batches
                                     </select>
                                   </td>
                                   <td>{getProductName(movement)}</td>
-                                  <td>{movement.createdAt ? new Date(movement.createdAt).toLocaleString() : 'N/A'}</td>
+                                  <td style={{ textAlign: 'center' }}>{movement.createdAt ? new Date(movement.createdAt).toLocaleString() : 'N/A'}</td>
                                   <td className="actions">
                                     <button
                                       className="action-button save-button"
@@ -2168,21 +2933,21 @@ const totalValue = batches
                                 </>
                               ) : (
                                 <>
-                                  <td className="medicine-id">{movement.id}</td>
-                                  <td>
-                                    <span className={`quantity-badge ${movement.movement_type === 'IN' ? 'normal' : 'low'}`}>
-                                      {movement.movement_type}
+                                  <td className="medicine-id">#{movement.id}</td>
+                                  <td style={{ textAlign: 'center' }}>
+                                    <span className={`movement-badge ${movement.movement_type === 'IN' ? 'badge-in' : 'badge-out'}`}>
+                                      {movement.movement_type === 'IN' ? '📥 ENTRÉE' : '📤 SORTIE'}
                                     </span>
                                   </td>
-                                  <td className="quantity">
+                                  <td className="quantity" style={{ textAlign: 'center' }}>
                                     <span className="quantity-badge normal">
                                       {movement.quantity}
                                     </span>
                                   </td>
                                   <td>{movement.reason}</td>
-                                  <td>{renderBatchId(movement.batch)}</td>
-                                  <td>{getProductName(movement)}</td>
-                                  <td>{movement.createdAt ? new Date(movement.createdAt).toLocaleDateString() : 'N/A'}</td>
+                                  <td style={{ textAlign: 'center' }}>#{renderBatchId(movement.batch)}</td>
+                                  <td className="medicine-name"><strong>{getProductName(movement)}</strong></td>
+                                  <td style={{ textAlign: 'center' }}>{movement.createdAt ? new Date(movement.createdAt).toLocaleDateString() : 'N/A'}</td>
                                   <td className="actions">
                                     <button
                                       className="action-button edit-button"
@@ -2206,6 +2971,15 @@ const totalValue = batches
                         })}
                       </tbody>
                     </table>
+
+                    <TablePagination
+                      currentPage={mvtPage}
+                      totalItems={filteredMovements.length}
+                      pageSize={mvtPageSize}
+                      onPageChange={setMvtPage}
+                      onPageSizeChange={setMvtPageSize}
+                      itemName="mouvements"
+                    />
                   </div>
                 )}
               </section>
